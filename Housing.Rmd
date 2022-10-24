@@ -1,0 +1,110 @@
+---
+title: "Econ Charts"
+author: "Andrew"
+date: "2022-10-17"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+##load packages
+library(ggplot2)
+library(zoo)
+library(quantmod)
+library(roll)
+library(Rblpapi)
+library(TTR)
+library(tis)
+library(reshape)
+library(dplyr)
+con<- blpConnect()
+```
+
+```{r}
+##Create a list of FRED tickers to be uploaded and set start and end dates for data (quarterly data)
+housing_list<- c("ETOTALUSQ176N","USSTHPI", "EVACANTUSQ176N","ERNTOCCUSQ176N","MSPUS","ASPUS","ESALEUSQ176N")
+start_date<- "2001-01-01"
+end_date<- Sys.Date()
+```
+
+```{r}
+##Build dataframe using ticker list
+housing_df <- NULL
+for (idx in seq(length(housing_list))){
+  housing_index = housing_list[idx]
+  getSymbols(housing_index, verbose = TRUE, src = "FRED", 
+             from=start_date,to=end_date)
+  temp_df = as.data.frame(get(housing_index))
+  temp_df$Date = row.names(temp_df)
+  temp_df$Index = housing_index
+  row.names(temp_df) = NULL
+  colnames(temp_df) = c("Value", "Date", "Index")
+  temp_df = temp_df[c("Date", "Index", "Value")]
+  housing_df = rbind(housing_df, temp_df)
+}
+```
+
+```{r}
+##Recast the dataframe from long-form to wide form
+house_cast<- cast(housing_df, Date~Index)
+colnames(house_cast)<- c("Date","Average_Sales_Price","Inv_Renter","Inv_Vac_Sale", "Total_Inv", "Inv_Vacant","Median_Sales_Price", "All_trans_HPI")
+```
+```{r}
+#Get colnames from house_cast excluding date
+trim_house_cast<- house_cast[,-1]
+```
+
+
+```{r}
+#Convert house_cast to an xts object
+house_cast$Date<- as.Date(house_cast$Date,"%Y-%m-%d")
+house_xts<- xts(house_cast[,-1, drop = TRUE], order.by = house_cast$Date)
+colnames(house_xts) <- colnames(trim_house_cast)
+```
+
+```{r}
+col_yellow<- "#FFCC33"
+col_blue<- "#3366CC"
+```
+
+
+```{r}
+#Plot of Total Inventory
+plot(house_xts$Total_Inv["2000-03-31/"], main = "Total Housing Inventory", col = col_yellow)
+```
+```{r}
+#Plot HPI
+plot(house_xts$All_trans_HPI, main = "All Transactions HPI", col = col_yellow)
+```
+
+```{r}
+#Plot of vacant homes inventory
+plot(house_xts$Inv_Vacan["2000-03-31/"], main = "Vacant Housing Inventory", col = col_yellow)
+```
+
+```{r}
+#Plot of vacant homes inventory for sale
+plot(house_xts$Inv_Vac_Sale["2000-03-31/"], main = "Vacant Housing Inventory for Sale", col = col_yellow)
+```
+
+```{r}
+#Plot of renter occupied inventory
+plot(house_xts$Inv_Renter["2000-03-31/"], main = "Renter Occupied Housing Inventory", col = col_yellow)
+```
+
+```{r}
+#Plot of median sales price in the US
+options(scipen=999)
+plot(house_xts$Median_Sales_Price, main = "Median Sales Price in the US", col = col_yellow)
+```
+```{r}
+#Plot of median sales price in the US
+options(scipen=999)
+plot(house_xts$Average_Sales_Price, main = "Average Sales Price in the US", col = col_yellow)
+```
+
+
+
