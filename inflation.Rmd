@@ -1,0 +1,392 @@
+---
+title: "Inflation"
+author: "Andrew"
+date: "June 9, 2021"
+output: html_document
+---
+
+```{r}
+library(devtools)
+library(rjson)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(ggplot2)
+library(tidyverse)
+library(zoo)
+library(quantmod)
+library(roll)
+library(broom)
+library(astsa)
+library(forecast)
+```
+
+```{r}
+library(Rblpapi)
+con<- blpConnect()
+start_date<- as.Date("1967-01-01")
+trade_day = "FALSE"
+opt<- c("periodicitySelection" = "MONTHLY")
+```
+
+```{r}
+crb_index<- bdh(securities = "CRY Index", 
+           fields = "PX_LAST", 
+           start.date = start_date,include.non.trading.days = trade_day, options = opt)
+agriculture_index<- bdh(securities = "BCOMAGSP Index", 
+           fields = "PX_LAST", 
+           start.date = start_date,include.non.trading.days = trade_day, options = opt)
+income_higher<- bdh(securities = "CONCININ Index",
+           fields = "PX_LAST",
+           start.date = start_date, include.non.trading.days = trade_day, options = opt)
+income_lower<- bdh(securities = "CONCINDEX Index",
+           fields = "PX_LAST",
+           start.date = start_date, include.non.trading.days = trade_day, options = opt)
+mich_five<- bdh(securities = "CONSP5MD Index",
+           fields = "PX_LAST",
+           start.date = start_date, include.non.trading.days = trade_day, options = opt)
+```
+
+```{r}
+##Create a function to pull FRED data, calculate yearly and monthly changes in actual and percentages, and rename columns
+
+fred_func<- function(code1,sector){
+  ahe <- getSymbols(code1, src = "FRED", auto.assign = FALSE)
+  yoy_diff<- diff(ahe,12)
+  mom_diff<- diff(ahe,1)
+  pct_yoy<- (yoy_diff/stats::lag(ahe,12)) * 100
+  pct_mom<- (mom_diff/stats::lag(ahe,1)) * 100
+  ahe<- merge(ahe,yoy_diff,mom_diff,pct_yoy,pct_mom)
+  colnames(ahe)[2]<- paste(sector,"yoy",sep = "_")
+  colnames(ahe)[3]<- paste(sector, "mom", sep = "_")
+  colnames(ahe)[4]<- paste(sector, "pct_yoy",sep = "_")
+  colnames(ahe)[5]<- paste(sector, "pct_mom", sep = "_")
+  return(ahe)
+}
+```
+
+```{r}
+income_higher_xts<- xts(income_higher[,-1], order.by = income_higher$date)
+income_lower_xts<- xts(income_lower[,-1], order.by = income_lower$date)
+```
+
+```{r}
+income_xts<- merge(income_higher_xts,income_lower_xts)
+income_xts$net<- income_xts$income_higher_xts - income_xts$income_lower_xts
+income_xts_month<- to.period(income_xts, period = "months", OHLC = FALSE, indexAt = "firstof")
+```
+
+```{r}
+mich_five_xts<- xts(mich_five[,-1], order.by = mich_five$date)
+mich_date<- to.period(mich_five_xts, period = "months", drop.time = TRUE, OHLC = FALSE, indexAt = "firstof")
+```
+
+```{r}
+cpi_core_index<- getSymbols("CPILFESL", src = "FRED", auto.assign = FALSE)
+cpi_head_index<- getSymbols("CPIAUCSL", src = "FRED", auto.assign = FALSE)
+core_pce_index<- getSymbols("PCEPILFE", src = "FRED", auto.assign = FALSE)
+pce_index<- getSymbols("PCEPI", src = "FRED", auto.assign = FALSE)
+cpi_services_index<- getSymbols("CUSR0000SAS", src = "FRED", auto.assign = FALSE)
+cpi_goods_index<- getSymbols("CUSR0000SACL1E", src = "FRED", auto.assign = FALSE)
+wti_monthly<- getSymbols("WTISPLC", src = "FRED", auto.assign = FALSE)
+ppi_healthcare<- getSymbols("PCU52411452411410101", src = "FRED", auto.assign = FALSE)
+pce_price_press<- getSymbols("STLPPM", src = "FRED", auto.assign = FALSE)
+ahe_leisure_hospitality<- getSymbols("CES7000000003", src = "FRED", auto.assign = FALSE)
+ahe_construction<- getSymbols("CES2000000003", src = "FRED", auto.assign = FALSE)
+ahe_mfg<- getSymbols("CES3000000003", src = "FRED", auto.assign = FALSE)
+ahe_retail<- getSymbols("CES4200000003", src = "FRED", auto.assign = FALSE)
+ahe_prof<- getSymbols("CES6000000003", src = "FRED", auto.assign = FALSE)
+ahe_edu<- getSymbols("CES6500000003", src = "FRED", auto.assign = FALSE)
+ahe_mine<- getSymbols("CES1000000003", src = "FRED", auto.assign = FALSE)
+ahe_info<- getSymbols("CES5000000003", src = "FRED", auto.assign = FALSE)
+ahe_goods<- getSymbols("CES0600000003", src = "FRED", auto.assign = FALSE)
+ahe_all<- getSymbols("CES0500000003", src = "FRED", auto.assign = FALSE)
+mich<- getSymbols("MICH", src = "FRED", auto.assign = FALSE)
+gas<- getSymbols("GASREGCOVW", src = "FRED", auto.assign = FALSE)
+u3<- getSymbols("UNRATE", src = "FRED", auto.assign = FALSE)
+```
+
+```{r}
+ahe_oservices<- fred_func("CES8000000003","oservices")
+```
+
+
+```{r}
+pce_index$pce_yoy<- diff(pce_index$PCEPI,12)
+pce_index$pct_yoy<- (pce_index$pce_yoy/stats::lag(pce_index$PCEPI,12)) * 100
+pce_index$pce_mom<- diff(pce_index$PCEPI)
+pce_index$pce_pct_mom<- (pce_index$pce_mom/stats::lag(pce_index$PCEPI,1)) * 100
+pce_index$year<- format(index(pce_index),"%Y")
+```
+
+```{r}
+plot.xts(pce_index$pct_yoy, type = "l", col = "red", main = "Headline PCE YoY Change")
+plot.xts(pce_index$pce_pct_mom, type = "l", col = "red", main = "Headline PCE MoM Change", lwd = 0.75)
+plot.zoo(pce_index)
+```
+
+```{r}
+mich_all<- merge(mich,mich_date)
+```
+
+
+```{r}
+pce_index_plus<- merge(window(pce_index["1990-01-01/"]),pce_price_press)
+pce_index_plus$lag_pp<- stats::lag(pce_index_plus$STLPPM,12)
+```
+
+```{r}
+ggplot(as.data.frame(pce_index_plus), aes(lag_pp,pct_yoy)) + geom_point(aes(color = year)) + ylab("YoY Headline PCE Inflation") + xlab("Lagged 12-month Lab STL FRB Price Pressure Index") + geom_smooth(method = "lm")
+```
+```{r}
+ahe_leisure_hospitality$l_h_yoy<- diff(ahe_leisure_hospitality$CES7000000003,12)
+ahe_leisure_hospitality$l_h_mom<- diff(ahe_leisure_hospitality$CES7000000003,1)
+ahe_leisure_hospitality$l_h_pct_yoy<- (ahe_leisure_hospitality$l_h_yoy/stats::lag(ahe_leisure_hospitality$CES7000000003,12)) * 100
+ahe_leisure_hospitality$l_h_pct_mom<- (ahe_leisure_hospitality$l_h_mom/stats::lag(ahe_leisure_hospitality$CES7000000003,1)) * 100
+plot.zoo(ahe_leisure_hospitality$l_h_pct_yoy, main = "Average Hourly Earnings Growth Leisure and Hospitality", col = "red", ylab = "Percent Change", xlab = "Date")
+abline(h = mean(ahe_leisure_hospitality$l_h_pct_yoy["2016/"], na.rm = TRUE), col = "blue", lwd = 1, lty = 2)
+plot.xts(ahe_leisure_hospitality$l_h_pct_mom, col = "red", main = "MoM AHE Growth Leisure and Hospitality")
+```
+```{r}
+ahe_construction$cons_yoy<- diff(ahe_construction$CES2000000003,12)
+ahe_construction$cons_mom<- diff(ahe_construction$CES2000000003,1)
+ahe_construction$cons_pct_yoy<- (ahe_construction$cons_yoy/stats::lag(ahe_construction$CES2000000003,12)) * 100
+ahe_construction$cons_pct_mom<- (ahe_construction$cons_mom/stats::lag(ahe_construction$CES2000000003,1)) * 100
+plot.zoo(ahe_construction$cons_pct_yoy, main = "Average Hourly Earnings Growth Construction", col = "red", ylab = "Percent Change", xlab = "Date")
+abline(h = mean(ahe_construction$cons_pct_yoy["2016/"], na.rm = TRUE), col = "blue", lwd = 1, lty = 2)
+plot.xts(ahe_construction$cons_pct_mom, col = "red", main = "MoM AHE Growth Construction")
+```
+```{r}
+ahe_mfg$mfg_yoy<- diff(ahe_mfg$CES3000000003,12)
+ahe_mfg$mfg_mom<- diff(ahe_mfg$CES3000000003,1)
+ahe_mfg$mfg_pct_yoy<- (ahe_mfg$mfg_yoy/stats::lag(ahe_mfg$CES3000000003,12)) * 100
+ahe_mfg$mfg_pct_mom<- (ahe_mfg$mfg_mom/stats::lag(ahe_mfg$CES3000000003,1)) * 100
+plot.zoo(ahe_mfg$mfg_pct_yoy, main = "Average Hourly Earnings Growth Manufacturing", col = "red", ylab = "Percent Change", xlab = "Date")
+abline(h = mean(ahe_mfg$mfg_pct_yoy["2016/"], na.rm = TRUE), col = "blue", lwd = 1, lty = 2)
+plot.xts(ahe_mfg$mfg_pct_mom, col = "red", main = "MoM AHE Growth Manufacturing")
+```
+```{r}
+ahe_retail$retail_yoy<- diff(ahe_retail$CES4200000003,12)
+ahe_retail$retail_mom<- diff(ahe_retail$CES4200000003,1)
+ahe_retail$retail_pct_yoy<- (ahe_retail$retail_yoy/stats::lag(ahe_retail$CES4200000003,12)) * 100
+ahe_retail$retail_pct_mom<- (ahe_retail$retail_mom/stats::lag(ahe_retail$CES4200000003,1)) * 100
+plot.zoo(ahe_retail$retail_pct_yoy, main = "Average Hourly Earnings Growth Retail", col = "red", ylab = "Percent Change", xlab = "Date")
+abline(h = mean(ahe_retail$retail_pct_yoy["2016/"], na.rm = TRUE), col = "blue", lwd = 1, lty = 2)
+plot.xts(ahe_retail$retail_pct_mom, col = "red", main = "MoM AHE Growth Retail")
+```
+
+```{r}
+ahe_prof$prof_yoy<- diff(ahe_prof$CES6000000003,12)
+ahe_prof$prof_mom<- diff(ahe_prof$CES6000000003,1)
+ahe_prof$prof_pct_yoy<- (ahe_prof$prof_yoy/stats::lag(ahe_prof$CES6000000003,12)) * 100
+ahe_prof$prof_pct_mom<- (ahe_prof$prof_mom/stats::lag(ahe_prof$CES6000000003,1)) * 100
+plot.zoo(ahe_prof$prof_pct_yoy, main = "Average Hourly Earnings Growth Prof. & Business Svcs.", col = "red", ylab = "Percent Change", xlab = "Date")
+abline(h = mean(ahe_prof$prof_pct_yoy["2016/"], na.rm = TRUE), col = "blue", lwd = 1, lty = 2)
+```
+
+```{r}
+ahe_trans<- getSymbols("CES4300000003", src = "FRED", auto.assign = FALSE)
+ahe_trans$trans_yoy<- diff(ahe_trans$CES4300000003,12)
+ahe_trans$trans_mom<- diff(ahe_trans$CES4300000003,1)
+ahe_trans$trans_pct_yoy<- (ahe_trans$trans_yoy/stats::lag(ahe_trans$CES4300000003,12)) * 100
+ahe_trans$trans_pct_mom<- (ahe_trans$trans_mom/stats::lag(ahe_trans$CES4300000003,1)) * 100
+plot(ahe_trans$trans_pct_yoy, main = "YoY Average Hourly Earnings Transp. & Warehousing", col = "#FFCC33")
+plot(ahe_trans$trans_pct_mom, main = "MoM Average Hourly Earnings Transp. & Warehousing", col = "#FFCC33")
+```
+
+```{r}
+ahe_fin<- getSymbols("CES5500000003", src = "FRED", auto.assign = FALSE)
+ahe_fin$fin_yoy<- diff(ahe_fin$CES5500000003,12)
+ahe_fin$fin_mom<- diff(ahe_fin$CES5500000003,1)
+ahe_fin$fin_pct_yoy<- (ahe_fin$fin_yoy/stats::lag(ahe_fin$CES5500000003,12)) * 100
+ahe_fin$fin_pct_mom<- (ahe_fin$fin_mom/stats::lag(ahe_fin$CES5500000003,1)) * 100
+plot(ahe_fin$fin_pct_yoy, main = "YoY Average Hourly Financial Activities", col = "#FFCC33")
+plot(ahe_fin$fin_pct_mom, main = "MoM Average Hourly Financial Activities", col = "#FFCC33")
+```
+
+
+
+```{r}
+#ans<- "test"
+#colnames(test)<- paste(colnames(test),ans,sep="_")
+```
+
+
+```{r}
+ahe_edu$edu_yoy<- diff(ahe_edu$CES6500000003,12)
+ahe_edu$edu_pct_yoy<- (ahe_edu$edu_yoy/stats::lag(ahe_edu$CES6500000003,12)) * 100
+plot.zoo(ahe_edu$edu_pct_yoy, main = "Average Hourly Earnings Growth Education & Health", col = "red", ylab = "Percent Change", xlab = "Date")
+abline(h = mean(ahe_edu$edu_pct_yoy["2016/"], na.rm = TRUE), col = "blue", lwd = 1, lty = 2)
+```
+
+```{r}
+ahe_mine$mine_yoy<- diff(ahe_mine$CES1000000003,12)
+ahe_mine$mine_pct_yoy<- (ahe_mine$mine_yoy/stats::lag(ahe_mine$CES1000000003,12)) * 100
+plot.zoo(ahe_mine$mine_pct_yoy, main = "Average Hourly Earnings Growth Mining & Logging", col = "red", ylab = "Percent Change", xlab = "Date")
+abline(h = mean(ahe_mine$mine_pct_yoy["2016/"], na.rm = TRUE), col = "blue", lwd = 1, lty = 2)
+```
+
+```{r}
+ahe_info$info_yoy<- diff(ahe_info$CES5000000003,12)
+ahe_info$info_pct_yoy<- (ahe_info$info_yoy/stats::lag(ahe_info$CES5000000003,12)) * 100
+plot.zoo(ahe_info$info_pct_yoy, main = "Average Hourly Earnings Growth Information", col = "red", ylab = "Percent Change", xlab = "Date")
+abline(h = mean(ahe_info$info_pct_yoy["2016/"], na.rm = TRUE), col = "blue", lwd = 1, lty = 2)
+```
+
+```{r}
+ahe_goods$goods_yoy<- diff(ahe_goods$CES0600000003,12)
+ahe_goods$goods_pct_yoy<- (ahe_goods$goods_yoy/stats::lag(ahe_goods$CES0600000003,12)) * 100
+plot.zoo(ahe_goods$goods_pct_yoy, main = "Average Hourly Earnings Growth Goods Producing", col = "red", ylab = "Percent Change", xlab = "Date")
+abline(h = mean(ahe_goods$goods_pct_yoy["2016/"], na.rm = TRUE), col = "blue", lwd = 1, lty = 2)
+```
+
+```{r}
+ahe_all$all_yoy<- diff(ahe_all$CES0500000003,12)
+ahe_all$all_pct_yoy<- (ahe_all$all_yoy/stats::lag(ahe_all$CES0500000003,12)) * 100
+plot.zoo(ahe_all$all_pct_yoy, main = "Average Hourly Earnings Growth All Employees", col = "red", ylab = "Percent Change", xlab = "Date")
+abline(h = mean(ahe_all$all_pct_yoy["2016/"], na.rm = TRUE), col = "blue", lwd = 1, lty = 2)
+```
+
+```{r}
+plot.xts(mich$MICH, col = "#FFCC33", main = "U of Michigan 12-month Inflation Expectations")
+```
+
+```{r}
+mich_all<- merge(mich,mich_five_xts)
+```
+
+
+```{r}
+pce_index_mich<- merge(pce_index_plus, window(mich["1990/"]))
+pce_index_mich$lag_mich<- stats::lag(pce_index_mich$MICH,12)
+```
+
+```{r}
+gas_month<- to.monthly(gas, indexAt = "firstof")
+pce_index_mich<- merge(pce_index_mich, gas_month)
+```
+
+
+```{r}
+ggplot(as.data.frame(pce_index_mich), aes(lag_mich,pct_yoy)) + geom_point(aes(color = year)) + ylab("YoY Headline PCE Inflation") + xlab("Lagged 12-month U of Michigan Inflation Expectation") + geom_smooth(method = "lm")
+
+ggplot(as.data.frame(pce_index_mich), aes(gas.Close, MICH)) + geom_point(aes(color = year)) + ylab("U of Michigan 1-year Inflation Expectation") + xlab("Average Gasoline Price") + geom_smooth(method = "lm") + ggtitle("Gas Prices Influence 1yr Inflation Expectations") + theme_bw()
+```
+```{r}
+pce_date<- to.period(pce_index, period = "months", drop.time = TRUE, OHLC = FALSE, indexAt = "firstof")
+pce_income<- merge(window(pce_date["1977-06-01/"]), window(income_xts_month["1977-06-01/"]))
+pce_income$higher_chg6<- diff(pce_income$income_higher_xts,6)
+pce_income$higher_chg6_lag6<- stats::lag(pce_income$higher_chg6,6)
+pce_income$net_chg6<- diff(pce_income$net,6)
+pce_income$net_chg6_lag6<- stats::lag(pce_income$net_chg6)
+pce_income$PCEPI_6M<- pce_income$PCEPI/stats::lag(pce_income$PCEPI,6)-1
+```
+```{r}
+ggplot(as.data.frame(pce_income), aes(income_higher_xts, pct_yoy)) + geom_point(aes(color = year)) + ggtitle("Income Expectations next 6-months vs YoY PCE Inflation") + xlab("% Expecting Increased Income next 6-months") + ylab("YoY % Change PCE Price Index") + geom_smooth(method = "lm")
+```
+```{r}
+ggplot(as.data.frame(pce_income), aes(income_lower_xts, pct_yoy)) + geom_point(aes(color = year)) + ggtitle("Income Expectations next 6-months vs YoY PCE Inflation") + xlab("% Expecting Decreased Income next 6-months") + ylab("YoY % Change PCE Price Index") + geom_smooth(method = "lm")
+```
+```{r}
+ggplot(as.data.frame(pce_income), aes(net, pct_yoy)) + geom_point(aes(color = year)) + ggtitle("Income Expectations next 6-months vs YoY PCE Inflation") + xlab("% Net Expecting Increased Income next 6-months") + ylab("YoY % Change PCE Price Index") + geom_smooth(method = "lm")
+```
+
+```{r}
+ggplot(as.data.frame(pce_income), aes(net_chg6_lag6, PCEPI_6M)) + geom_point(aes(color = year)) + ggtitle("Income Expectations next 6-months vs PCE Inflation") + xlab("% Net Change Expecting Increased Income next 6-months") + ylab("6M % Change PCE Price Index") + geom_smooth(method = "lm")
+```
+
+```{r}
+earn<- merge(u3,ahe_all)
+```
+
+```{r}
+plot(earn$UNRATE["2007-03-01/"], main = "Unemployment Rate vs. Average Hourly Earnings", col = "#FFCC33", ylim = c(-1,16), lwd =2)
+lines(earn$all_pct_yoy, col = "#3366cc", lwd = 2)
+addLegend(legend.loc = "topleft", legend.names = c("Unemployment Rate", "AHE YoY"),  ncol = 1,  fill = c("#FFCC33","#3366cc"))
+```
+```{r}
+ahe_util<- fred_func("CES4422000003","util")
+ahe_wholesale<- fred_func("CES4142000003","wholesale")
+```
+
+
+```{r}
+## Merge all AHE sectors into one dataframe
+ahe_sectors<- merge(ahe_leisure_hospitality, ahe_construction,ahe_mfg,ahe_retail,ahe_prof,ahe_edu,ahe_mine,ahe_info,ahe_goods,ahe_all,ahe_trans,ahe_fin,ahe_oservices,ahe_util,ahe_wholesale)
+```
+
+```{r}
+plot(ahe_sectors$all_pct_yoy["2007-03-01/"], main = "YoY Average Hourly Earnings by Sector", col = "#FFCC33", ylim = c(-1,16), lwd =3)
+lines(ahe_sectors$l_h_pct_yoy, col = "#3366cc", lwd = 1)
+lines(ahe_sectors$cons_pct_yoy, col = "red", lwd = 1)
+lines(ahe_sectors$mfg_pct_yoy, col = "green", lwd = 1)
+lines(ahe_sectors$retail_pct_yoy, col = "black", lwd = 1)
+lines(ahe_sectors$prof_pct_yoy, col = "gray", lwd = 1)
+lines(ahe_sectors$edu_pct_yoy, col = "#FFC399", lwd = 1)
+lines(ahe_sectors$mine_pct_yoy, col = "#CC6300", lwd = 1)
+lines(ahe_sectors$info_pct_yoy, col = "#666600", lwd = 1)
+lines(ahe_sectors$goods_pct_yoy, col = "#33CCFF", lwd = 1)
+lines(ahe_sectors$trans_pct_yoy, col = "orange", lwd =1)
+lines(ahe_sectors$fin_pct_yoy, col = "yellow", lwd =1)
+lines(ahe_sectors$oservices_pct_yoy, col = "purple", lwd = 1)
+lines(ahe_sectors$util_pct_yoy, col = "red", lty = 2, lwd = 1)
+lines(ahe_sectors$wholesale_pct_yoy, col = "black", lty = 2, lwd =1)
+addLegend(legend.loc = "topleft", legend.names = c("AHE YoY - all", "Leisure & Hosp.","Construction","Mfg.","Retail","Prof. & Bus. Svcs.","Education", "Mining & Logging", "Info Tech","Goods Producing", "Trans & Warehouse", "Financial Activities","Other Services", "Utility", "Wholesale Trade"),  ncol = 3,  fill = c("#FFCC33","#3366cc","red","green","black","gray","#FFC399","#CC6300","#666600","#33CCFF", "orange", "yellow","purple", "red", "black"))
+```
+
+```{r}
+df<- data.frame(Leisure_Hosp = last(ahe_sectors$l_h_pct_yoy),
+                Construction = last(ahe_sectors$cons_pct_yoy),
+                Manuf = last(ahe_sectors$mfg_pct_yoy),
+                Retail = last(ahe_sectors$retail_pct_yoy),
+                Prof_Bus_Svc = last(ahe_sectors$prof_pct_yoy),
+                Education = last(ahe_sectors$edu_pct_yoy),
+                Mining_Logging = last(ahe_sectors$mine_pct_yoy),
+                Info_Tech = last(ahe_sectors$mine_pct_yoy),
+                Goods_Prod = last(ahe_sectors$goods_pct_yoy),
+                Transport = last(ahe_sectors$trans_pct_yoy),
+                Financial = last(ahe_sectors$fin_pct_yoy),
+                Other_Services = last(ahe_sectors$oservices_pct_yoy),
+                Utility = last(ahe_sectors$util_pct_yoy),
+                Wholsale = last(ahe_sectors$wholesale_pct_yoy),
+                All_Sectors = last(ahe_sectors$all_pct_yoy))
+
+```
+
+```{r}
+colnames(df)[1] <- "Leisure_Hosp"
+colnames(df)[2] <- "Construction"
+colnames(df)[3] <- "Manufacturing"
+colnames(df)[4] <- "Retail"
+colnames(df)[5] <- "Prof_Bus_Svcs"
+colnames(df)[6] <- "Education"
+colnames(df)[7] <- "Mining_Logging"
+colnames(df)[8] <- "Info_Tech"
+colnames(df)[9] <- "Goods_Prod"
+colnames(df)[10] <- "Transportation"
+colnames(df)[11] <- "Financial"
+colnames(df)[12] <- "Other Services"
+colnames(df)[13] <- "Utility"
+colnames(df)[14] <- "Wholesale Trade"
+colnames(df)[15] <- "All Sectors"
+```
+
+```{r}
+df2<- as.data.frame(t(df))
+df2<- cbind(Sector = rownames(df2),df2)
+rownames(df2)<- 1:nrow(df2)
+colnames(df2)[2]<- "YoY_Change"
+df2$YoY_Change<- as.numeric(df2$YoY_Change)
+```
+
+```{r}
+library(ggthemes)
+ggplot(df2,aes(Sector, YoY_Change)) + geom_col() + coord_flip() + theme_calc() + ggtitle("Year-over-Year Average Hourly Earnings") + theme(plot.title = element_text(size = 18, face = "bold", color = "#3366cc"), axis.title.y = element_text(size=14))
+```
+
+```{r}
+earn_2007<- earn["2007-03-01/"]
+earn_2007$year<- format(index(earn_2007),"%Y")
+ggplot(as.data.frame(earn_2007), aes(UNRATE,all_pct_yoy)) + geom_point(aes(color = year)) + ylab("AHE YoY %") + xlab("U3 Unemployment Rate") + ggtitle("AHE YoY vs. U3 UER: 2007 to Present") + geom_smooth(method = "loess") + theme_bw()
+```
+
