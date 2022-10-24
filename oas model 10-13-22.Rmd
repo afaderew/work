@@ -1,0 +1,289 @@
+---
+title: "Corp OAS Model 10-13-22"
+author: "Andrew"
+date: "2022-10-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#Load required packages and connect to Bloomberg
+library(Rblpapi)
+library(ggplot2)
+library(stats)
+library(quantmod)
+library(zoo)
+library(pls)
+library(dplyr)
+library(rollRegres)
+library(broom)
+library(lubridate)
+library(PerformanceAnalytics)
+library(roll)
+con<- blpConnect()
+```
+
+```{r}
+#Create Bloomberg function to quickly retrieve data. Ticker = Bloomberg ticker, variable = Bloomberg data field, start = start date of data, days = whether to include non-trading days
+bloom<- function(ticker,variable,start,days){
+  result<- bdh(securities = ticker,
+               fields = variable,
+               start.date = start,
+               include.non.trading.days = days)
+  return(result)
+}
+```
+
+```{r}
+#Set variables for the starting date for Bloomberg data and whether to include non-trading days.  Add colors yellow and blue
+start_date <- as.Date("2004-01-02")
+non_trade <- "FALSE"
+col_yellow<- "#FFCC33"
+col_blue<- "#3366CC"
+```
+
+```{r}
+# Use the created bloom function to load the CBOE Oil ETF VIX Index and convert to an xts object
+ovx<- bloom("OVX INDEX", "PX_LAST", start_date, non_trade)
+ovx_xts<- xts(ovx[,-1], order.by = ovx$date)
+```
+
+```{r}
+# Use the created bloom function to load the Corporate Index OAS and convert to an xts object
+corp_oas<- bloom("LUACOAS INDEX", "PX_LAST", start_date, non_trade)
+corp_oas_xts<- xts(corp_oas[,-1], order.by = corp_oas$date)
+```
+
+```{r}
+# Use the created bloom function to load the CVIX Index and convert to an xts object
+cvix<- bloom("CVIX INDEX", "PX_LAST", start_date, non_trade)
+cvix_xts<- xts(cvix[,-1], order.by = cvix$date)
+```
+
+```{r}
+# Use the created bloom function to load the VIX Index and convert to an xts object
+vol<- bloom("VIX INDEX", "PX_LAST", start_date, non_trade)
+vol_xts<- xts(vol[,-1], order.by = vol$date)
+```
+
+```{r}
+# Use the created bloom function to load the Japanese 10yr bond yield and convert to an xts object
+jpy_10<- bloom("GTJPY10YR Govt", "PX_LAST", start_date, non_trade)
+jpy_10_xts<- xts(jpy_10[,-1], order.by = jpy_10$date)
+```
+
+```{r}
+# Use the created bloom function to load the US Treasury 10yr bond yield and convert to an xts object
+us_10<- bloom("USGG10YR INDEX", "PX_LAST", start_date, non_trade)
+us_10_xts<- xts(us_10[,-1], order.by = us_10$date)
+```
+
+```{r}
+# Use the created bloom function to load WTI prices and convert to an xts object
+wti_oil<- bloom("USCRWTIC INDEX", "PX_LAST", start_date, non_trade)
+wti_oil_xts<- xts(wti_oil[,-1], order.by = wti_oil$date)
+colnames(wti_oil_xts)[1]<- "WTI"
+wti_oil_xts$wti_std_dev<- roll_sd(wti_oil_xts$WTI, width = 120)
+```
+
+```{r}
+#Merge xts objects into one dataframe.  Create new window starting on 2007-05-10 to account for the first date of the ovx index
+oas_df<- merge(corp_oas_xts, cvix_xts,vol_xts,jpy_10_xts,us_10_xts, ovx_xts, wti_oil_xts)
+oas_df_window<- window(oas_df["2007-05-10/"])
+```
+
+```{r}
+#Create new vector of the spread between US 10yr Treasury yields and Japanese 10yr yields
+oas_df_window$us_jpy_spread<- oas_df_window$us_10_xts - oas_df_window$jpy_10_xts
+```
+
+```{r}
+#Check for NAs and either remove or carry last observation forward
+oas_df_window<- na.locf(oas_df_window)
+colSums(is.na(oas_df_window))
+```
+
+```{r}
+#Correlation plot of data
+library(corrplot)
+oas_df_cor<- cor(oas_df_window)
+corrplot(oas_df_cor, method = "color", type = "lower", diag = FALSE, tl.srt = 45, tl.cex = 1)
+```
+
+```{r}
+plot(oas_df_window$corp_oas_xts, col = col_yellow, main = "Corporate Index OAS")
+```
+
+```{r}
+plot(oas_df_window$cvix_xts, col = col_yellow, main = "Currency Volatility Index (CVIX)")
+```
+
+```{r}
+plot(oas_df_window$vol_xts, col = col_yellow, main = "VIX Index")
+```
+
+```{r}
+plot(oas_df_window$wti_std_dev, col = col_yellow, main = "6-month Standard Deviation WTI Prices")
+```
+
+```{r}
+plot(oas_df_window$us_jpy_spread, col = col_yellow, main = "Spread Between US 10yr Yield & Japan 10yr Yield")
+```
+
+```{r}
+#Convert oas_window_df to a dataframe object to use in ggplot2
+oas_dataframe<- fortify(oas_df_window)
+```
+
+```{r}
+#Add year column to oas_dataframe
+oas_dataframe$year<- format(oas_dataframe$Index,"%Y")
+```
+
+```{r}
+#Scatterplot of CVIX and corporate OAS
+ggplot(oas_dataframe, aes(cvix_xts, corp_oas_xts)) + geom_point(aes(color=year)) + labs(title = "Relationship between CVIX and Corporate OAS") + xlab("CVIX Index") + ylab("Corporate OAS in %") + theme_bw()
+```
+```{r}
+#Scatterplot of CVIX and corporate OAS
+ggplot(oas_dataframe, aes(vol_xts, corp_oas_xts)) + geom_point(aes(color=year)) + labs(title = "Relationship between VIX and Corporate OAS") + xlab("VIX Index") + ylab("Corporate OAS in %") + theme_bw()
+```
+
+```{r}
+#Scatterplot of CVIX and corporate OAS
+ggplot(oas_dataframe, aes(wti_std_dev, corp_oas_xts)) + geom_point(aes(color=year)) + labs(title = "Relationship between WTI Standard Deviation and Corporate OAS") + xlab("6M SD of WTI Prices") + ylab("Corporate OAS in %") + theme_bw()
+```
+
+```{r}
+#Scatterplot of CVIX and corporate OAS
+ggplot(oas_dataframe, aes(ovx_xts, corp_oas_xts)) + geom_point(aes(color=year)) + labs(title = "Relationship between OVX Index and Corporate OAS") + xlab("OVX Index") + ylab("Corporate OAS in %") + theme_bw()
+```
+
+```{r}
+#Scatterplot of CVIX and corporate OAS
+ggplot(oas_dataframe, aes(us_jpy_spread, corp_oas_xts)) + geom_point(aes(color=year)) + labs(title = "Relationship between US/Japan 10yr Yield Spread and Corporate OAS") + xlab("US/Japan 10yr Yield Spread") + ylab("Corporate OAS in %") + theme_bw()
+```
+
+```{r}
+#Examining the rolling correlation between CVIX and Corporate Spreads
+cvix_cor<- roll_cor(oas_df_window$cvix_xts,oas_df_window$corp_oas_xts, width = 240)
+plot(cvix_cor,col = col_yellow, main = "Correlation between CVIX and Corporate OAS")
+```
+
+```{r}
+#Examining the rolling correlation between WTI SD and Corporate Spreads
+wti_sd_cor<- roll_cor(oas_df_window$wti_std_dev,oas_df_window$corp_oas_xts, width = 240)
+plot(wti_sd_cor,col = col_yellow, main = "Correlation between WTI SD and Corporate OAS")
+```
+
+```{r}
+#Examining the rolling correlation between VIX and Corporate Spreads
+vix_cor<- roll_cor(oas_df_window$vol_xts,oas_df_window$corp_oas_xts, width = 240)
+plot(vix_cor,col = col_yellow, main = "Correlation between VIX and Corporate OAS")
+```
+
+```{r}
+#Examining the rolling correlation between US & Japan 10yr Yield Spread and Corporate Spreads
+us_jpy_cor<- roll_cor(oas_df_window$us_jpy_spread,oas_df_window$corp_oas_xts, width = 240)
+plot(us_jpy_cor,col = col_yellow, main = "Correlation between Yield Spread of US & Japan 10yr and Corporate OAS")
+```
+
+```{r}
+# Build a regression model over entire dataframe to see general fit
+oas_model<- lm(corp_oas_xts ~ cvix_xts + vol_xts + wti_std_dev + us_jpy_spread, data = oas_df_window)
+summary(oas_model)
+```
+
+```{r}
+# Select predictor columns from oas dataframe
+predictors<- oas_df_window[,2:9]
+predictors<- predictors[,-3]
+predictors<- predictors[,-3]
+predictors<- predictors[,-3]
+predictors<- predictors[,-3]
+```
+
+```{r}
+# Use the roll_lm package to create rolling linear models
+roll_oas_two<- roll_lm(predictors,oas_df_window$corp_oas_xts, width = 240)
+plot(roll_oas_two$r.squared, main = "1-year Rolling R-squared of Corporate OAS Model", col = "#FFCC33")
+```
+```{r}
+#Create a training and test dataset of the oas dataframe
+train_oas<- window(oas_df_window["2007-05-10/2017-12-31"])
+test_oas<- window(oas_df_window["2018/"])
+```
+
+```{r}
+#Build linear model on training data
+train_model<- lm(corp_oas_xts ~ cvix_xts + vol_xts + wti_std_dev + us_jpy_spread, data = train_oas)
+summary(train_model)
+```
+
+```{r}
+#Add fitted values to test data
+augmented_train_data<- augment(train_model)
+augmented_train_data$.rownames<- as.Date(augmented_train_data$.rownames,"%Y-%m-%d")
+augment_train_xts<- xts(augmented_train_data[,-1], order.by = augmented_train_data$.rownames)
+```
+
+```{r}
+#Plot of actual OAS vs model fitted over training period
+plot(augment_train_xts$corp_oas_xts, col = col_yellow, main = "Actual Corporate OAS vs Model Fitted - Training Data", ylim = c(0,7))
+lines(augment_train_xts$.fitted, col = col_blue)
+addLegend(legend.loc = "topright", legend.names = c("Actual Corporate OAS", "Fitted Corporate OAS"),  ncol = 1,  fill = c(col_yellow,col_blue))
+```
+
+
+```{r}
+# Use oas model to predict and compare to test data
+model_preds<- predict(train_model,test_oas)
+```
+
+```{r}
+#Convert model_preds to a dataframe and then into an xts object
+model_preds_df<- data.frame(model_preds)
+model_preds_df$date<- index(test_oas)
+model_preds_xts<- xts(model_preds_df[,-2], order.by = model_preds_df$date)
+colnames(model_preds_xts)[1]<- "Predicted_OAS"
+```
+
+
+```{r}
+#Merge model predictions onto test oas dataset
+test_oas_aug<- merge(test_oas, model_preds_xts)
+```
+
+
+```{r}
+# Plot actual test data OAS vs Predicted
+plot(test_oas_aug$corp_oas_xts, col = "#FFCC33", main = "Actual Corporate OAS vs Model Predicted on Test Data")
+lines(test_oas_aug$Predicted_OAS, col = "#3366CC")
+addLegend(legend.loc = "topleft", legend.names = c("Actual Corporate OAS", "Model Predicted Corporate OAS"),  ncol = 1,  fill = c(col_yellow,col_blue))
+```
+
+
+
+```{r}
+#Re-fitting linear model on test data to examine coefficients and significance levels
+test_model<- lm(corp_oas_xts ~ cvix_xts + vol_xts + wti_std_dev + us_jpy_spread, data = test_oas)
+summary(test_model)
+```
+
+```{r}
+#Add fitted values to test data
+augmented_data<- augment(test_model)
+augmented_data$.rownames<- as.Date(augmented_data$.rownames,"%Y-%m-%d")
+augment_xts<- xts(augmented_data[,-1], order.by = augmented_data$.rownames)
+```
+
+```{r}
+#Plot of fitted values vs actual
+plot(augment_xts$corp_oas_xts, main = "Actual OAS vs Model Fitted", col = "#FFCC33")
+lines(augment_xts$.fitted, col = "#3366CC")
+addLegend(legend.loc = "topright", legend.names = c("Actual Corporate OAS", "Fitted Corporate OAS"),  ncol = 1,  fill = c(col_yellow,col_blue))
+```
+
