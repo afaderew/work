@@ -1,0 +1,271 @@
+---
+output:
+  pdf_document: default
+  html_document: default
+---
+ ---
+title: "Rates and Curve"
+author: "Andrew"
+date: "December 23, 2020"
+output: html_document
+---
+
+
+```{r}
+library(Rblpapi)
+library(stats)
+library(quantmod)
+library(zoo)
+library(pls)
+library(dplyr)
+library(roll)
+library(ggplot2)
+library(sweep)
+library(broom)
+library(astsa)
+library(xts)
+library(TTR)
+con<- blpConnect()
+```
+
+```{r}
+start_date<- as.Date("2002-02-13")
+start_date2<- as.Date("1980-12-31")
+trade_day<- "FALSE"
+```
+
+```{r}
+#downloading data from Bloomberg
+ust_5<- bdh(securities = "USGG5YR Index", 
+           fields = "PX_LAST", 
+           start.date = start_date,include.non.trading.days = trade_day)
+
+ust_10<- bdh(securities = "USGG10YR Index", 
+           fields = "PX_LAST", 
+           start.date = start_date,include.non.trading.days = trade_day)
+
+ust_30<- bdh(securities = "USGG30YR Index", 
+           fields = "PX_LAST", 
+           start.date = start_date,include.non.trading.days = trade_day)
+
+ois_3m<- bdh(securities = "USSOC Index", 
+           fields = "PX_LAST", 
+           start.date = start_date,include.non.trading.days = trade_day)
+
+ois_5y<- bdh(securities = "USSO5 Index", 
+           fields = "PX_LAST", 
+           start.date = start_date,include.non.trading.days = trade_day)
+
+crb_in<- bdh(securities = "CRY Index", 
+           fields = "PX_LAST", 
+           start.date = start_date,include.non.trading.days = trade_day)
+
+fed_res<- bdh(securities = "FARBAST Index", 
+           fields = "PX_LAST", 
+           start.date = start_date,include.non.trading.days = trade_day)
+
+gdr_10<- bdh(securities = "GDBR10 Index", 
+           fields = "PX_LAST", 
+           start.date = start_date,include.non.trading.days = trade_day)
+
+usd_in<- bdh(securities = "DXY Curncy", 
+           fields = "PX_LAST", 
+           start.date = start_date,include.non.trading.days = trade_day)
+
+vix_in<- bdh(securities = "VIX Index", 
+           fields = "PX_LAST", 
+           start.date = start_date,include.non.trading.days = trade_day)
+
+exp_cur<- bdh(securities = ".EXCUR Index",
+              fields = "PX_LAST",
+              start.date = start_date2, include.non.trading.days = trade_day)
+
+head_cpi<- bdh(securities = "CPI YOY Index",
+              fields = "PX_LAST",
+              start.date = start_date2, include.non.trading.days = trade_day)
+
+mich_1<- bdh(securities = "CONSPXMD Index",
+              fields = "PX_LAST",
+              start.date = start_date2, include.non.trading.days = trade_day)
+
+mich_510<- bdh(securities = "CONSP5MD Index",
+              fields = "PX_LAST",
+              start.date = start_date2, include.non.trading.days = trade_day)
+
+tips_curve<- bdh(securities = ".TIP530 Index",
+              fields = "PX_LAST",
+              start.date = start_date2, include.non.trading.days = trade_day)
+
+two_ten_curve<- bdh(securities = "USYC2Y10 Index",
+              fields = "PX_LAST",
+              start.date = start_date2, include.non.trading.days = trade_day)
+```
+
+```{r}
+#Calculate the exponential moving average of the past 120 months of headline CPI
+head_cpi$EMA120<- EMA(head_cpi$PX_LAST, n = 120)
+```
+
+```{r}
+#convert data from Bloomberg into xts
+xts_5<- xts(ust_5$PX_LAST, order.by = ust_5$date)
+xts_10<- xts(ust_10$PX_LAST, order.by = ust_10$date)
+xts_30<- xts(ust_30$PX_LAST, order.by = ust_30$date)
+xts_ois<- xts(ois_3m$PX_LAST, order.by = ois_3m$date)
+xts_ois5y<- xts(ois_5y$PX_LAST, order.by = ois_5y$date)
+xts_crb<- xts(crb_in$PX_LAST, order.by = crb_in$date)
+xts_fed<- xts(fed_res$PX_LAST, order.by = fed_res$date)
+xts_gdr<- xts(gdr_10$PX_LAST, order.by = gdr_10$date)
+xts_usd<- xts(usd_in$PX_LAST, order.by = usd_in$date)
+xts_vix<- xts(vix_in$PX_LAST, order.by = vix_in$date)
+xts_exp_cur<- xts(exp_cur$PX_LAST, order.by = exp_cur$date)
+xts_head_cpi<- xts(head_cpi[-1], order.by = head_cpi$date)
+xts_mich_1<- xts(mich_1[-1], order.by = mich_1$date)
+xts_mich_510<- xts(mich_510[-1], order.by = mich_510$date)
+xts_tips_curve<- xts(tips_curve[-1], order.by = tips_curve$date)
+xts_two_ten_curve<- xts(two_ten_curve[-1], order.by = two_ten_curve$date)
+```
+
+
+
+
+```{r}
+#check periodicity of each nominal treasury security
+periodicity(xts_5)
+periodicity(xts_10)
+periodicity(xts_30)
+periodicity(xts_ois)
+periodicity(xts_ois5y)
+periodicity(xts_crb)
+periodicity(xts_fed)
+periodicity(xts_gdr)
+periodicity(xts_usd)
+periodicity(xts_vix)
+periodicity(xts_exp_cur)
+periodicity(xts_head_cpi)
+periodicity(xts_mich_1)
+periodicity(xts_mich_510)
+periodicity(xts_tips_curve)
+periodicity(xts_two_ten_curve)
+```
+```{r}
+#merge all indexes and securities into one data set
+rates_data<- na.locf(merge(xts_5, xts_10, xts_30, xts_ois, xts_crb,xts_fed,xts_gdr,xts_usd, xts_vix, xts_ois5y))
+```
+
+```{r}
+#fair value model for 5yr US Treasury yield
+fv_ust5<- lm(xts_5 ~ xts_ois5y + xts_crb + xts_fed + xts_gdr + xts_vix + xts_usd, data = rates_data)
+summary(fv_ust5)
+```
+```{r}
+#fair value model for 10yr US Treasury yield
+fv_ust10<- lm(xts_10 ~ xts_ois5y + xts_crb + xts_gdr + xts_vix + xts_usd, data = rates_data)
+summary(fv_ust10)
+```
+```{r}
+#fair value model for 30yr US Treasury yield
+fv_ust30<- lm(xts_30 ~ xts_ois5y + xts_crb + xts_gdr + xts_vix, data = rates_data)
+summary(fv_ust30)
+```
+```{r}
+#plot of US Treasury yields
+plot.zoo(rates_data[,c("xts_5", "xts_10", "xts_30")])
+```
+```{r}
+#extracting data from FV models and converting to xts objects
+aug_5fv<- augment(fv_ust5)
+aug_10fv<- augment(fv_ust10)
+aug_30fv<- augment(fv_ust30)
+aug_5fv_xts<- xts(aug_5fv[,-1], order.by = as.Date(aug_5fv$.rownames))
+aug_10fv_xts<- xts(aug_10fv[,-1], order.by = as.Date(aug_10fv$.rownames))
+aug_30fv_xts<- xts(aug_30fv[,-1], order.by = as.Date(aug_30fv$.rownames))
+```
+
+```{r}
+#plot of 5yr actual vs fitted FV model
+plot.zoo(aug_5fv_xts[,c("xts_5", ".fitted")], plot.type = "single", col = c("blue","red"), ylab = "Yield", xlab = "Date", main = "5yr Actual (blue) UST vs FV Fitted(red)")
+```
+```{r}
+#plot of 10yr actual vs fitted FV model
+plot.zoo(aug_10fv_xts[,c("xts_10", ".fitted")], plot.type = "single", col = c("blue","red"), ylab = "Yield", xlab = "Date", main = "10yr Actual UST vs FV Fitted")
+legend("topright", inset=c(0,0), legend = c("Actual 10yr","Modeled 10yr"), lty = 1, bty = 'n', col = c(1,2), cex = 1)
+```
+```{r}
+#plot of 30yr actual vs fitted FV model
+plot.zoo(aug_30fv_xts[,c("xts_30", ".fitted")], plot.type = "single", col = c("blue","red"), ylab = "Yield", xlab = "Date", main = "30yr Actual (blue) UST vs FV Fitted(red)")
+```
+
+
+
+```{r}
+#Current FV for each UST
+paste("The Five Year Treasury FV is:", last(aug_5fv_xts$.fitted))
+paste("The Ten Year Treasury FV is:", last(aug_10fv_xts$.fitted))
+paste("The Thirty Year Treasury FV is:", last(aug_30fv_xts$.fitted))
+paste("The current standardized residual for the Five Year Treasury vs FV is:", last(aug_5fv_xts$.std.resid))
+paste("The current standardized residual for the Ten Year Treasury vs FV is:", last(aug_10fv_xts$.std.resid))
+paste("The current standardized residual for the Thirty Year Treasury vs FV is:", last(aug_30fv_xts$.std.resid))
+```
+```{r}
+par(mfrow = c(3,1))
+plot.zoo(aug_5fv_xts[,".std.resid"], ylab = "5yr std", xlab = "Date", col = "blue", main = "Standard Deviations from FV")
+plot.zoo(aug_10fv_xts[,".std.resid"], ylab = "10yr std", xlab = "Date", col = "red", main = "Standard Deviations from FV")
+plot.zoo(aug_30fv_xts[,".std.resid"], ylab = "30yr std", xlab = "Date", col = "black", main = "Standard Deviations from FV")
+```
+```{r}
+#plot of 5yr US Treasury Yields vs FV models
+par(mfrow = c(2,1))
+plot.zoo(aug_5fv_xts["2005/",c("xts_5", ".fitted")], plot.type = "single", col = c("blue","red"), ylab = "Yield", xlab = "Date", main = "5yr Actual (blue) UST vs FV Fitted(red)")
+plot.zoo(aug_5fv_xts["2005/",".std.resid"], ylab = "5yr std", xlab = "Date", col = "red", main = "Standard Deviations from FV")
+```
+```{r}
+par(mfrow = c(2,1))
+plot.zoo(aug_10fv_xts["2005/2021",c("xts_10", ".fitted")], plot.type = "single", col = c("blue","red"), ylab = "Yield", xlab = "Date", main = "10yr Actual (blue) UST vs FV Fitted(red)")
+plot.zoo(aug_10fv_xts["2005/2021",".std.resid"], ylab = "10yr std", xlab = "Date", col = "red", main = "Standard Deviations from FV")
+```
+```{r}
+par(mfrow = c(2,1))
+plot.zoo(aug_30fv_xts["2005/2021",c("xts_30", ".fitted")], plot.type = "single", col = c("blue","red"), ylab = "Yield", xlab = "Date", main = "30yr Actual (blue) UST vs FV Fitted(red)")
+plot.zoo(aug_30fv_xts["2005/2021",".std.resid"], ylab = "30yr std", xlab = "Date", col = "red", main = "Standard Deviations from FV")
+```
+```{r}
+par(mfrow = c(2,1))
+plot.zoo(aug_30fv_xts["2020/2021",c("xts_30", ".fitted")], plot.type = "single", col = c("blue","red"), ylab = "Yield", xlab = "Date", main = "30yr Actual (blue) UST vs FV Fitted(red)")
+plot.zoo(aug_30fv_xts["2020/2021",".std.resid"], ylab = "30yr std", xlab = "Date", col = "red", main = "Standard Deviations from FV")
+```
+```{r}
+library(forecast)
+```
+
+```{r}
+naive_30<- naive(rates_data$xts_30, h = 252)
+autoplot(naive_30)
+ses_30<- ses(rates_data$xts_30, h = 252)
+autoplot(ses_30) + autolayer(fitted(ses_30))
+```
+```{r}
+monthly_10<- to.monthly(xts_10, indexAt = "lastof")
+monthly_data<- merge(window(xts_head_cpi["2002-01-31/"]), monthly_10, xts_mich_1, xts_mich_510)
+```
+
+```{r}
+monthly_10_fv<- lm(xts_10.Close ~ EMA120, data = monthly_data)
+summary(monthly_10_fv)
+```
+```{r}
+tips_curve_monthly<- window(to.monthly(xts_tips_curve, indexAt = "lastof")["2002-01-31/"])
+two_ten_curve_monthly<- window(to.monthly(xts_two_ten_curve, indexAt = "lastof")["2002-01-31/"])
+vix_monthly<- window(to.monthly(xts_vix, indexAt = "lastof")["2002-01-31/"])
+exp_cur_monthly<- window(xts_exp_cur["2002-01-31/"])
+```
+
+```{r}
+curve_merge<- merge(tips_curve_monthly, two_ten_curve_monthly, vix_monthly, exp_cur_monthly)
+```
+
+```{r}
+two_ten_model<- lm(xts_two_ten_curve.Close ~ exp_cur_monthly + xts_tips_curve.Close + xts_vix.Close, data = curve_merge)
+summary(two_ten_model)
+```
+

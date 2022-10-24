@@ -1,0 +1,391 @@
+---
+title: "Bond Yield Changes"
+author: "Andrew"
+date: "2022-08-30"
+output: html_document
+---
+
+This project examines yield changes using the benchmark 10yr US Treasury and attempts to build a model that can predict when interest rates will rise by greater than 15 basis points over the next month - which happened roughly 25% of the time over the sample dataset.  The first part of the project loads price data for multiple economic and financial variables. From there, I will build and test predictive models to help identify upcoming periods where interest rates are likely to rise/fall over the next month in an attempt to outperform the base rates.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r} 
+#Load required Bloomberg package and connect to the database. Create variables for start time and whether to include non-trading days
+library(Rblpapi)
+con<- blpConnect()
+start_date <- as.Date("2002-01-01")
+non_trade <- "FALSE"
+```
+
+```{r}
+#load performance analytics package and dplyr
+library(PerformanceAnalytics)
+library(dplyr)
+```
+
+```{r}
+#Load kable package for fancy tables
+library(kableExtra)
+```
+
+
+```{r}
+#Create Bloomberg function to quickly retrieve data. Ticker = Bloomberg ticker, variable = Bloomberg data field, start = start date of data, days = whether to include non-trading days
+bloom<- function(ticker,variable,start,days){
+  result<- bdh(securities = ticker,
+               fields = variable,
+               start.date = start,
+               include.non.trading.days = days)
+  return(result)
+}
+```
+
+```{r}
+#Retrieve data for drawdown model
+high_yield<- bloom("LF98OAS Index", "PX_LAST", start_date,non_trade)
+vix<- bloom("VIX Index","PX_LAST",start_date,non_trade)
+move<- bloom("MOVE Index", "PX_LAST", start_date, non_trade)
+yield_curve<- bloom("USYC2Y10 Index", "PX_LAST", start_date, non_trade)
+surprise<- bloom("CESIUSD Index", "PX_LAST", start_date, non_trade)
+crb<- bloom("CRY Index", "PX_LAST", start_date, non_trade)
+inv_grade<- bloom("LUACOAS Index", "PX_LAST", start_date, non_trade)
+dxy<- bloom("DXY Index", "PX_LAST", start_date, non_trade)
+bei_5<- bloom("USGGBE05 Index", "PX_LAST", start_date, non_trade)
+bei_10<- bloom("USGGBE10 Index", "PX_LAST", start_date, non_trade)
+bei_30<- bloom("USGGBE30 Index", "PX_LAST", start_date, non_trade)
+ust_10<- bloom("USGG10YR Index", "PX_LAST", start_date, non_trade)
+spx<- bloom("SPX Index", "PX_LAST", start_date, non_trade)
+```
+
+```{r}
+#Convert Bloomberg dataframes to xts time based objects
+hy_xts<- xts(high_yield[,-1], order.by = high_yield$date)
+vix_xts<- xts(vix[,-1], order.by = vix$date)
+move_xts<- xts(move[,-1],order.by = move$date)
+yc_xts<- xts(yield_curve[,-1], order.by = yield_curve$date)
+surp_xts<- xts(surprise[,-1], order.by = surprise$date)
+crb_xts<- xts(crb[,-1], order.by = crb$date)
+ig_xts<- xts(inv_grade[,-1], order.by = inv_grade$date)
+dxy_xts<- xts(dxy[,-1], order.by = dxy$date)
+bei5_xts<- xts(bei_5[,-1], order.by = bei_5$date)
+bei10_xts<- xts(bei_10[,-1], order.by = bei_10$date)
+bei30_xts<- xts(bei_30[,-1], order.by = bei_30$date)
+ust10_xts<- xts(ust_10[,-1], order.by = ust_10$date)
+```
+
+```{r}
+#Convert spx to and xts time based object
+spx_xts<- xts(spx[,-1], order.by = spx$date)
+colnames(spx_xts)[1]<- "sp_500"
+```
+
+```{r}
+#Create column calculating daily returns
+spx_xts$daily_return_sp500_pct<- ((spx_xts$sp_500/stats::lag(spx_xts$sp_500,1))-1)*100
+```
+
+```{r}
+#Change ust10_xts column name to PX_LAST and calculating daily and monthly (21-day) yield change
+colnames(ust10_xts)[1]<- "ty_yield"
+ust10_xts$daily_chg<- ust10_xts$ty_yield - stats::lag(ust10_xts$ty_yield,1)
+ust10_xts$monthly_chg<- ust10_xts$ty_yield - stats::lag(ust10_xts$ty_yield,21)
+```
+
+Exploratory Analysis of Ten Year UST Yield Changes
+```{r}
+#Plot of monthly changes in UST 10yr yields
+plot(ust10_xts$monthly_chg, col = "#3366cc", main ="Rolling 21-day 10yr UST Yield Changes", ylim = c(-1.5,1.5))
+```
+```{r}
+#Summary data of UST 10yr Yield data
+summary(ust10_xts)
+```
+```{r}
+#Retrieving dates when maximum and minimum yield changes occurred
+ust10_xts[which.min(ust10_xts$monthly_chg)]
+ust10_xts[which.max(ust10_xts$monthly_chg)]
+ust10_xts[which.min(ust10_xts$daily_chg)]
+ust10_xts[which.max(ust10_xts$daily_chg)]
+```
+
+A summary of ten year US Treasury yield changes since 2002 shows that the median daily change is zero and the median monthly change is -0.0113.  On an average basis, the daily change was -0.0003 and monthly change -0.008.  The largest daily increase in yields occurred on March 17th, 2020 when 10yr yields increased 36.02 bps and the largest daily yield decline was on March 18th, 2009 when yields fell 47.36 bps.  July 29th, 2003 was the largest monthly increase of 92.48 bps, while the largest monthly decline was -139.26 bps ending on December 16th, 2008.
+
+```{r}
+#Boxplots of daily and monthly yield changes
+par(mfrow=c(2,1))
+boxplot(ust10_xts$daily_chg, horizontal = TRUE, main = "Daily UST 10yr Yield Changes", col = "#FFCC33")
+boxplot(ust10_xts$monthly_chg, horizontal = TRUE, main = "Monthly UST 10yr Yield Changes", col = "#FFCC33")
+```
+
+```{r}
+#Merge all xts objects into one dataset
+all_10<- merge(hy_xts,vix_xts,move_xts,yc_xts,surp_xts,crb_xts,ig_xts,dxy_xts,bei5_xts,bei10_xts,bei30_xts,ust10_xts,spx_xts)
+```
+
+```{r}
+change_func<- function(x,n){
+  change<- x - stats::lag(x,n)
+}
+```
+
+```{r}
+#Look-back periods (21 trading days = one month, 126 trading days = 6 months)
+look_back1<- 21
+look_back2<- 126
+look_ahead<- -21
+look_ahead_13<- -65
+look_back_13<- 65
+```
+
+
+```{r}
+#Add new data mutations to the dataset
+all_10$hy_chg<- all_10$hy_xts - stats::lag(all_10$hy_xts,126)
+all_10$hy_chg_bps<- all_10$hy_chg * 100
+all_10$vix_chg<- all_10$vix_xts - stats::lag(all_10$vix_xts,21)
+all_10$move_chg<- all_10$move_xts - stats::lag(all_10$move_xts,21)
+all_10$yc_chg<- change_func(yc_xts,look_back1)
+all_10$surp_chg<- change_func(surp_xts,look_back1)
+all_10$crb_chg<- change_func(crb_xts, look_back1)
+all_10$ig_chg<- change_func(ig_xts,look_back1)
+all_10$dxy_chg<- change_func(dxy_xts,look_back1)
+all_10$bei5_chg<- change_func(bei5_xts,look_back1)
+all_10$bei10_chg<- change_func(bei10_xts,look_back1)
+all_10$bei30_chg<- change_func(bei30_xts,look_back1)
+all_10$lead_yield_chg<- stats::lag(all_10$monthly_chg,look_ahead)
+all_10$ten_13_ahead<- stats::lag(all_10$ty_yield,look_ahead_13) - all_10$ty_yield
+all_10$ten_13_back<- all_10$ty_yield - stats::lag(all_10$ty_yield,look_back_13)
+all_10$ten_rise<- all_10$lead_yield_chg > 0.14
+all_10$spx_month<- (all_10$sp_500/stats::lag(all_10$sp_500,21))-1
+all_10$year<- format(index(all_10),"%Y")
+all_10$hy_interaction<- all_10$hy_xts * all_10$hy_chg_bps
+```
+
+```{r}
+#Baseline % of positive yield changes
+sum(all_10$ten_rise)/length(all_10$ten_rise)
+```
+
+
+```{r}
+#Convert to a dataframe to create ggplots
+all_10_df<- as.data.frame(all_10)
+```
+
+
+
+
+```{r}
+#ggplots of relationships between predictor variables and next 21-day ten-year changes
+library(ggplot2)
+ggplot(all_10_df, aes(hy_chg,lead_yield_chg)) + geom_point(aes(color = year)) + ggtitle("6-month HY Change vs. Next 21-day UST 10yr Yield Change") + geom_smooth(method = "lm") + geom_hline(yintercept = 0) + geom_vline(xintercept = 0)
+```
+```{r}
+ggplot(all_10_df, aes(vix_chg,lead_yield_chg)) + geom_point(aes(color = year)) + ggtitle("Previous Month VIX Change vs. Next 21-day UST 10yr Yield Change") + geom_smooth(method = "lm") + geom_hline(yintercept = 0) + geom_vline(xintercept = 0)
+```
+```{r}
+ggplot(all_10_df, aes(move_chg,lead_yield_chg)) + geom_point(aes(color = year)) + ggtitle("Previous Month MOVE Change vs. Next 21-day UST 10yr Yield Change") + geom_smooth(method = "lm") + geom_hline(yintercept = 0) + geom_vline(xintercept = 0)
+```
+```{r}
+ggplot(all_10_df, aes(monthly_chg,lead_yield_chg)) + geom_point(aes(color = year)) + ggtitle("Previous Month UST 10yr Yield Change vs. Next 21-day UST 10yr Yield Change") + geom_smooth(method = "lm") + geom_hline(yintercept = 0) + geom_vline(xintercept = 0)
+```
+```{r}
+ggplot(all_10_df, aes(surp_chg,lead_yield_chg)) + geom_point(aes(color = year)) + ggtitle("Previous Month Economic Surprise Change vs. Next 21-day UST 10yr Yield Change") + geom_smooth(method = "lm") + geom_hline(yintercept = 0) + geom_vline(xintercept = 0)
+```
+```{r}
+ggplot(all_10_df, aes(surp_xts,lead_yield_chg)) + geom_point(aes(color = year)) + ggtitle("Economic Surprise Index vs. Next 21-day UST 10yr Yield Change") + geom_smooth(method = "lm") + geom_hline(yintercept = 0) + geom_vline(xintercept = 0)
+```
+```{r}
+ggplot(all_10_df, aes(surp_xts,ten_13_back)) + geom_point(aes(color = year)) + ggtitle("Economic Surprise Index vs. Previous 65-day 10yr Yield Change") + geom_smooth(method = "lm") + geom_hline(yintercept = 0) + geom_vline(xintercept = 0)
+```
+```{r}
+ggplot(all_10_df, aes(surp_xts,ten_13_ahead)) + geom_point(aes(color = year)) + ggtitle("Economic Surprise Index vs. Next 65-day UST 10yr Yield Change") + geom_smooth(method = "lm") + geom_hline(yintercept = 0) + geom_vline(xintercept = 0)
+```
+```{r}
+ggplot(all_10_df, aes(hy_interaction,lead_yield_chg)) + geom_point(aes(color = year)) + ggtitle("HY Interaction vs. Next 21-day UST 10yr Yield Change") + geom_smooth(method = "lm") + geom_hline(yintercept = 0) + geom_vline(xintercept = 0)
+```
+
+
+```{r}
+#Set window of dates to remove NA's and carry last observation forward to remove additional NA's, check to see if all colsums are equal to zero (meaning there are no NA's)
+all_10<- window(all_10["2003-01-31/"])
+all_10<- na.locf(all_10)
+colSums(is.na(all_10))
+```
+
+```{r}
+#Correlation plot of data
+library(corrplot)
+all_10_cor<- cor(all_10)
+corrplot(all_10_cor, method = "color", type = "lower", diag = FALSE, tl.srt = 45, tl.cex = 0.6)
+```
+
+```{r}
+#Split dataset into train, validate, test sets
+train<- window(all_10["2003-01-31/2013-01-01"])
+valid<- window(all_10["2013-01-02/2017-06-01"])
+test<- window(all_10["2017-06-02/2022-08-31"])
+```
+
+```{r}
+##First Logistic regression model for the data
+tr_glm<- glm(ten_rise ~ bei5_chg + crb_chg + ig_chg, data = train, family = binomial(link = "logit"))
+summary(tr_glm)
+```
+
+```{r}
+##Using fitted model to predict on validation set, summary of drawdown prediction ranges
+tr_predict<- predict(tr_glm,valid, type = "response")
+summary(tr_predict)
+```
+#The initial above predictions show that the model assigns anywhere from 0% to 100% with a mean of 20.4% to a forthcoming drawdown
+
+```{r}
+library(pROC)
+roc(as.matrix(valid$ten_rise),round(tr_predict))
+```
+
+```{r}
+##Setting threshold probability for the model and looking at the confusion matrix (Actual on side, predicted across top of matrix)
+thresh<- 0.36
+tr_predict_thresh<- as.integer(tr_predict> thresh)
+(conf_matrix<- as.matrix(table(valid$ten_rise, tr_predict_thresh)))
+```
+
+```{r}
+##Creating a vector of thresholds. The models predicted values range from 0.1794 to 0.3815
+thresh_seq<- seq(0.19,0.38,0.01)
+```
+
+```{r}
+##Creating function to compare several threshold levels in the model
+thresh_func<- function(x){
+  pt<- as.integer(tr_predict>x)
+  return(pt)
+}
+```
+
+```{r}
+##Applying threshold function across vector of thresholds
+thresholds<-lapply(thresh_seq, thresh_func)
+```
+
+```{r}
+##Function to create confusion matrices across all thresholds
+cm_func<- function(y){
+  mtx<- as.matrix(table(valid$ten_rise,y))
+  return(mtx)
+}
+```
+
+
+```{r}
+##Applying confusion matrix function to see confusion matrix for each threshold 
+(thresh_mtx<- lapply(thresholds,cm_func))
+```
+
+```{r}
+#Create an accuracy function to apply to each threshold matrix
+accuracy<- function(x){
+  acc<- (x[1,1] + x[2,2])/sum(x)
+  return(acc)
+}
+```
+
+```{r}
+#Create a Sensitivity function to apply to each threshold matrix (calculates percent of predicting true positives to all true positives and negatives)
+sensitivity<- function(x){
+  sens<- (x[1,1]/(x[1,1] + x[1,2]))
+  return(sens)
+}
+```
+
+```{r}
+#Create a Specificity function to apply to each threshold matrix (calculates percent of predicting true negatives to sum of true positives and false positives)
+specificity<- function(x){
+  spec<- (x[2,2]/(x[2,2] + x[2,1]))
+  return(spec)
+}
+```
+
+
+```{r}
+#Calculate the accuracy of each matrix
+(result<- lapply(thresh_mtx, accuracy))
+acc_df<- t(as.data.frame(result,col.names = thresh_seq))
+acc_df <- cbind(newColName = rownames(acc_df), acc_df)
+rownames(acc_df) <- 1:nrow(acc_df)
+```
+```{r}
+#Calculate the sensitivity of each matrix (True positive rate)
+(result_sens<- lapply(thresh_mtx, sensitivity))
+acc_df_sens<- t(as.data.frame(result_sens,col.names = thresh_seq))
+acc_df_sens <- cbind(newColName = rownames(acc_df_sens), acc_df_sens)
+rownames(acc_df_sens) <- 1:nrow(acc_df_sens)
+```
+```{r}
+#Calculate the sensitivity of each matrix (True Negative Rate)
+(result_spec<- lapply(thresh_mtx, specificity))
+acc_df_spec<- t(as.data.frame(result_spec,col.names = thresh_seq))
+acc_df_spec <- cbind(newColName = rownames(acc_df_spec), acc_df_spec)
+rownames(acc_df_spec) <- 1:nrow(acc_df_spec)
+```
+
+```{r}
+#Create fancy table of accuracy level at each threshold
+kable(acc_df, col.names = c("Threshold Level","Model Accuracy"))
+```
+#The above table shows that at low prediction threshold probabilities, the model incorrectly calls for too many drawdowns, when in fact the actual s&P 500 return was not worse than -5%. At higher prediction threshold probabilities, the model correctly classified non-drawdown months, but failed to identify most (if any) of the actual drawdowns.  In the next step, I will apply a cost function that penalizes the model for incorrectly classifying drawdowns and missing actual drawdowns.
+
+#The cost function will calculate each thresholds "cost" to an investor for model errors.  For type one errors, where the model calls for no drawdown and there actually is a drawdown, I will start by weighting those errors 10X.  Type two errors, where the model calls for a drawdown, but the actual S&P 500 return is better than -5%, I will take at face value. 
+
+```{r}
+#Create fancy table of sensitivity level at each threshold
+kable(acc_df_sens, col.names = c("Threshold Level","Model Sensitivity"))
+```
+```{r}
+#Create fancy table of specificity level at each threshold
+kable(acc_df_spec, col.names = c("Threshold Level","Model Specificity"))
+```
+
+```{r}
+##Creating a cost function
+cost_per_thresh<- function(x){
+  cpt<- (10 * x[1,2]) + (x[2,1])
+  return(cpt)
+}
+```
+
+```{r}
+##Applying the cost function across all threshold confusion matrices
+lapply(thresh_mtx,cost_per_thresh)
+```
+#The above cost for each threshold level identifies a model threshold predition probability of 13% as the best. I will now apply the model to the test data using 13% prediction probability to see how it works.
+
+```{r}
+##Using fitted model to predict on test set, summary of drawdown prediction ranges
+tr_predict_test<- predict(tr_glm,test, type = "response")
+summary(tr_predict_test)
+```
+
+```{r}
+##Setting threshold probability for the model and looking at the confusion matrix
+thresh_test<- 0.26
+tr_predict_test_thresh<- as.integer(tr_predict_test> thresh_test)
+(conf_matrix_test<- as.matrix(table(test$ten_rise,tr_predict_test_thresh )))
+```
+
+```{r}
+#Calculating the accuracy, sensitivity, and specificity of the model in the test period
+accuracy(conf_matrix_test)
+sensitivity(conf_matrix_test)
+specificity(conf_matrix_test)
+```
+
+
+
+
+
+

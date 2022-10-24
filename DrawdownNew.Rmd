@@ -1,0 +1,247 @@
+---
+title: "DrawdownNew"
+author: "Andrew"
+date: "2022-07-20"
+output: html_document
+---
+#This project examines drawdowns in the S&P 500 and attempts to build a model that can predict when the next month of returns (21 trading days) will be worse than -5%.  The first part of the project loads price data for the S&P 500, HY Index Spreads, VIX, MOVE, and the 2/10 US Treasury Yield Curve.  I run the PerformanceAnalytics package to visualize and display historical drawdowns in the S&P 500.  From there, I build and test predictive models to help identify upcoming periods of greater than 5% losses over the next month.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r} 
+#Load required Bloomberg package and connect to the database. Create variables for start time and whether to include non-trading days
+library(Rblpapi)
+con<- blpConnect()
+start_date <- as.Date("1940-08-20")
+non_trade <- "FALSE"
+```
+
+```{r}
+#load performance analytics package and dplyr
+library(PerformanceAnalytics)
+library(dplyr)
+```
+
+```{r}
+#Load kable package for fancy tables
+library(kableExtra)
+```
+
+
+```{r}
+#Load Bloomberg data of historical S&P 500 prices
+spx <- bdh(securities = "SPX Index", 
+           fields = "PX_LAST", 
+           start.date = start_date,include.non.trading.days = non_trade)
+```
+
+```{r}
+#Create Bloomberg function to quickly retrieve data. Ticker = Bloomberg ticker, variable = Bloomberg data field, start = start date of data, days = whether to include non-trading days
+bloom<- function(ticker,variable,start,days){
+  result<- bdh(securities = ticker,
+               fields = variable,
+               start.date = start,
+               include.non.trading.days = days)
+  return(result)
+}
+```
+
+```{r}
+#Retrieve data for drawdown model
+high_yield<- bloom("LF98OAS Index", "PX_LAST", start_date,non_trade)
+vix<- bloom("VIX Index","PX_LAST",start_date,non_trade)
+move<- bloom("MOVE Index", "PX_LAST", start_date, non_trade)
+yield_curve<- bloom("USYC2Y10 Index", "PX_LAST", start_date, non_trade)
+```
+
+```{r}
+#Convert Bloomberg dataframes to xts time based objects
+hy_xts<- xts(high_yield[,-1], order.by = high_yield$date)
+vix_xts<- xts(vix[,-1], order.by = vix$date)
+move_xts<- xts(move[,-1],order.by = move$date)
+yc_xts<- xts(yield_curve[,-1], order.by = yield_curve$date)
+```
+
+```{r}
+#Convert spx to and xts time based object
+spx_xts<- xts(spx[,-1], order.by = spx$date)
+colnames(spx_xts)[1]<- "PX_LAST"
+```
+
+```{r}
+#Create column calculating daily returns
+spx_xts$daily_return<- ((spx_xts$PX_LAST/stats::lag(spx_xts,1))-1)
+```
+
+```{r}
+#Create a window of spx_xts that contains return data for each day (excludes a single day from original dataset)
+spx_40<- window(spx_xts["1940-08-21/"])
+```
+
+```{r}
+#run table.drawdowns on S&P 500
+d_downs<- table.Drawdowns(spx_40$daily_return, top = 50)
+```
+
+```{r}
+#Chart S&P 500 Drawdowns
+chart.Drawdown(spx_40$daily_return, color = "#FFCC33", lwd = 0.5, main = "S&P 500 Drawdowns")
+```
+
+```{r}
+#Create ratio between length of recovery to drawdown
+d_downs$recover_trough_ratio<- d_downs$Recovery/d_downs$`To Trough`
+```
+
+```{r}
+#Merge all xts objects into one dataset
+all<- merge(hy_xts,vix_xts,move_xts,yc_xts,spx_xts)
+```
+
+```{r}
+#Create a subset of the all dataset where each variable has consistent daily data
+all_2000<- window(all["2000-08-15/"])
+
+#Carry last observation forward to remove NA
+all_2000<- na.locf(all_2000)
+```
+
+```{r}
+#Add new data mutations to the dataset
+all_2000$hy_chg<- all_2000$hy_xts - stats::lag(all_2000$hy_xts,126)
+all_2000$vix_chg<- all_2000$vix_xts - stats::lag(all_2000$vix_xts,21)
+all_2000$move_chg<- all_2000$move_xts - stats::lag(all_2000$move_xts,21)
+all_2000$spx_month<- (all_2000$PX_LAST/stats::lag(all_2000$PX_LAST,21))-1
+all_2000$lead_returns<- stats::lag(all_2000$spx_month,-21)
+all_2000$spx_bad<- all_2000$lead_returns < -0.05
+```
+
+```{r}
+#Split dataset into train, validate, test sets
+train<- window(all_2000["2001-02-07/2011-02-06"])
+valid<- window(all_2000["2011-02-07/2016-02-06"])
+test<- window(all_2000["2016-02-07/2022-06-22"])
+```
+
+```{r}
+##First Logistic regression model for the data
+dd_glm<- glm(spx_bad ~ hy_chg + vix_chg + move_chg + yc_xts, data = train, family = binomial(link = "logit"))
+summary(dd_glm)
+```
+
+```{r}
+##Using fitted model to predict on validation set, summary of drawdown prediction ranges
+dd_predict<- predict(dd_glm,valid, type = "response")
+summary(dd_predict)
+```
+#The initial above predictions show that the model assigns anywhere from 6.724% to 24.568% to a forthcoming drawdown
+
+```{r}
+library(pROC)
+roc(as.matrix(valid$spx_bad),round(dd_predict))
+```
+
+```{r}
+##Setting threshold probability for the model and looking at the confusion matrix
+thresh<- 0.2
+dd_predict_thresh<- as.integer(dd_predict> thresh)
+(conf_matrix<- as.matrix(table(dd_predict_thresh, valid$spx_bad)))
+```
+
+#After setting the prediction threshold to 20%, the model correctly predicts 1176 "good months" where the S&P 500 avoids a drawdown of at least 5% and capturing two months where a drawdown of more than 5% happened.  The model peformed poorly otherwise, calling for 39 months of drawdowns when none actually occured and missing 88 months of actual drawdowns. In the next step, I will create a threshold level (minimum probability to predict a drawdown) and see how the model fares.  
+
+```{r}
+##Creating a vector of thresholds. The models predicted values range from 0.06724 to 0.24568
+thresh_seq<- seq(0.08,0.24,0.01)
+```
+
+```{r}
+##Creating function to compare several threshold levels in the model
+thresh_func<- function(x){
+  pt<- as.integer(dd_predict>x)
+  return(pt)
+}
+```
+
+```{r}
+##Applying threshold function across vector of thresholds
+thresholds<-lapply(thresh_seq, thresh_func)
+```
+
+```{r}
+##Function to create confusion matrices across all thresholds
+cm_func<- function(y){
+  mtx<- as.matrix(table(y,valid$spx_bad))
+  return(mtx)
+}
+```
+
+
+```{r}
+##Applying confusion matrix function to see confusion matrix for each threshold 
+(thresh_mtx<- lapply(thresholds,cm_func))
+```
+
+```{r}
+#Create an accuracy function to apply to each threshold matrix
+accuracy<- function(x){
+  acc<- (x[1,1] + x[2,2])/sum(x)
+  return(acc)
+}
+```
+
+```{r}
+#Calculate the accuracy of each matrix
+(result<- lapply(thresh_mtx, accuracy))
+acc_df<- t(as.data.frame(result,col.names = thresh_seq))
+acc_df <- cbind(newColName = rownames(acc_df), acc_df)
+rownames(acc_df) <- 1:nrow(acc_df)
+```
+
+
+```{r}
+#Create fancy table of accuracy level at each threshold
+kable(acc_df, col.names = c("Threshold Level","Model Accuracy"))
+```
+#The above table shows that at low prediction threshold probabilities, the model incorrectly calls for too many drawdowns, when in fact the actual s&P 500 return was not worse than -5%. At higher prediction threshold probabilities, the model correctly classified non-drawdown months, but failed to identify most (if any) of the actual drawdowns.  In the next step, I will apply a cost function that penalizes the model for incorrectly classifying drawdowns and missing actual drawdowns.
+
+#The cost function will calculate each thresholds "cost" to an investor for model errors.  For type one errors, where the model calls for no drawdown and there actually is a drawdown, I will start by weighting those errors 10X.  Type two errors, where the model calls for a drawdown, but the actual S&P 500 return is better than -5%, I will take at face value. 
+
+```{r}
+##Creating a cost function
+cost_per_thresh<- function(x){
+  cpt<- (10 * x[1,2]) + (x[2,1])
+  return(cpt)
+}
+```
+
+```{r}
+##Applying the cost function across all threshold confusion matrices
+lapply(thresh_mtx,cost_per_thresh)
+```
+#The above cost for each threshold level identifies a model threshold predition probability of 13% as the best. I will now apply the model to the test data using 13% prediction probability to see how it works.
+
+```{r}
+##Using fitted model to predict on validation set, summary of drawdown prediction ranges
+dd_predict_test<- predict(dd_glm,test, type = "response")
+summary(dd_predict_test)
+```
+
+```{r}
+##Setting threshold probability for the model and looking at the confusion matrix
+thresh_test<- 0.13
+dd_predict_test_thresh<- as.integer(dd_predict_test> thresh_test)
+(conf_matrix_test<- as.matrix(table(dd_predict_test_thresh, test$spx_bad)))
+```
+
+```{r}
+#Calculating the accuracy of the model in the test period
+accuracy(conf_matrix_test)
+```
+
+#Using test data, the model correctly classified 1444 no drawdown periods and identified 12 actual drawdowns greater than -5%.  The model incorrectly labeled 90 periods as drawdowns when none actually occured and failed to identify 117 actual drawdowns.  Overall, the model's accuracy was 87% on test data.
+
+
+

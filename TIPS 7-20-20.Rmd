@@ -1,0 +1,544 @@
+---
+title: "TIPS Models"
+author: "Andrew"
+date: "July 20, 2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(Rblpapi)
+library(stats)
+library(quantmod)
+library(zoo)
+library(pls)
+library(dplyr)
+library(roll)
+library(ggplot2)
+library(sweep)
+library(broom)
+library(astsa)
+library(xts)
+con<- blpConnect()
+```
+
+```{r}
+start_date = as.Date("2000-12-31")
+```
+
+
+```{r}
+bei_5<- bdh(securities = "USGGBE05 Index", 
+           fields = "PX_LAST", 
+           start.date = start_date,include.non.trading.days = "TRUE")
+
+bei_10<- bdh(securities = "USGGBE10 Index", 
+           fields = "PX_LAST", 
+           start.date = start_date, include.non.trading.days = "TRUE")
+
+bei_30<- bdh(securities = "USGGBE30 Index", 
+           fields = "PX_LAST", 
+           start.date = start_date,include.non.trading.days = "TRUE")
+
+wti_oil<- bdh(securities = "USCRWTIC Index", 
+           fields = "PX_LAST", 
+           start.date = start_date,include.non.trading.days = "TRUE")
+
+vix_bei<- bdh(securities = "VIX Index", 
+           fields = "PX_LAST", 
+           start.date = start_date,include.non.trading.days = "TRUE")
+
+nom_fx<- bdh(securities = "NMFXVOL Index",
+            fields = "PX_LAST",
+            start.date = start_date,include.non.trading.days = "TRUE")
+
+hy_oas<- bdh(securities = "LF98OAS Index", 
+           fields = "PX_LAST", 
+           start.date = start_date,include.non.trading.days = "TRUE")
+
+dxy_index<- bdh(securities = "DXY Index", 
+           fields = "PX_LAST", 
+           start.date = start_date,include.non.trading.days = "TRUE")
+
+crb_index<- bdh(securities = "CRY Index", 
+           fields = "PX_LAST", 
+           start.date = start_date,include.non.trading.days = "TRUE")
+
+five_year_nom<- bdh(securities = "USGG5YR Index", 
+           fields = "PX_LAST", 
+           start.date = start_date,include.non.trading.days = "TRUE")
+
+ten_year_nom<- bdh(securities = "USGG10YR Index", 
+           fields = "PX_LAST", 
+           start.date = start_date,include.non.trading.days = "TRUE")
+
+thirty_year_nom<- bdh(securities = "USGG30YR Index", 
+           fields = "PX_LAST", 
+           start.date = start_date,include.non.trading.days = "TRUE")
+five_real<- bdh(securities = "H15X5YR Index", 
+           fields = "PX_LAST", 
+           start.date = start_date,include.non.trading.days = "TRUE")
+ten_real<- bdh(securities = "H15X10YR Index", 
+           fields = "PX_LAST", 
+           start.date = start_date,include.non.trading.days = "TRUE")
+thirty_real<- bdh(securities = "H15X30YR Index", 
+           fields = "PX_LAST", 
+           start.date = start_date,include.non.trading.days = "TRUE")
+```
+
+```{r}
+TIPS_DF<- bei_5 %>%
+  right_join(bei_10, by = "date", suffix = c("_bei_5", "_bei_10")) %>%
+  right_join(bei_30, by = "date", suffix = c("bei_10", "_bei_30")) %>%
+  right_join(wti_oil, by = "date", suffix = c("_bei_30", "_wti_oil")) %>%
+  right_join(vix_bei, by = "date", suffix = c("_wti_oil", "_vix_bei")) %>%
+  right_join(nom_fx, by = "date", suffix = c("_vix_bei", "_nom_fx")) %>%
+  right_join(hy_oas, by = "date", suffix = c("_nom_fx", "_hy_oas")) %>%
+  right_join(dxy_index, by = "date", suffix = c("_hy_oas", "_dxy_index")) %>%
+  right_join(crb_index, by = "date", suffix = c("_dxy_index", "_crb_index")) %>%
+  right_join(five_year_nom, by = "date", suffix = c("_crb_index", "_five_year_nom")) %>%
+  right_join(ten_year_nom, by = "date", suffix = c("_five_year_nom", "_ten_year_nom")) %>%
+  right_join(thirty_year_nom, by = "date", suffix = c("_ten_year_nom", "_thirty_year_nom")) %>%
+  na.locf()
+```
+
+```{r}
+look_back_tips<- 1012
+```
+
+```{r}
+TIPS_DF<- TIPS_DF %>%
+  mutate(wti_sd = roll_sd(PX_LAST_wti_oil,look_back_tips)) %>%
+  mutate(vix_sd = roll_sd(PX_LAST_vix_bei, look_back_tips)) %>%
+  mutate(nom_fx_sd = roll_sd(PX_LAST_nom_fx, look_back_tips)) %>%
+  mutate(ma_vix = roll_mean(PX_LAST_vix_bei, look_back_tips)) %>%
+  mutate(ma_nom_fx = roll_mean(PX_LAST_nom_fx, look_back_tips)) %>%
+  mutate(z_vix = (PX_LAST_vix_bei - ma_vix)/vix_sd) %>%
+  mutate(z_nom_fx = (PX_LAST_nom_fx - ma_nom_fx)/nom_fx_sd) %>%
+  mutate(crb_percent = (PX_LAST_crb_index/lag(PX_LAST_crb_index,30))-1)
+```
+
+```{r}
+FIVE_BEI_MODEL<- lm(PX_LAST_bei_5 ~ PX_LAST_crb_index + z_vix + z_nom_fx + PX_LAST_five_year_nom + PX_LAST_hy_oas, data = TIPS_DF)
+summary(FIVE_BEI_MODEL)
+```
+```{r}
+TEN_BEI_MODEL<- lm(PX_LAST_bei_10 ~ PX_LAST_crb_index + z_vix + z_nom_fx + wti_sd + PX_LAST_ten_year_nom + PX_LAST_hy_oas, data = TIPS_DF)
+summary(TEN_BEI_MODEL)
+```
+
+```{r}
+THIRTY_BEI_MODEL<- lm(PX_LAST_bei_30 ~ PX_LAST_crb_index + PX_LAST_hy_oas + z_nom_fx + PX_LAST_thirty_year_nom, data = TIPS_DF)
+summary(THIRTY_BEI_MODEL)
+```
+
+```{r}
+TIPS_DF_PREDICT<- TIPS_DF %>%
+  mutate(predicted_bei_5 = predict(FIVE_BEI_MODEL,TIPS_DF)) %>%
+  mutate(bei_5_residual = PX_LAST_bei_5 - predicted_bei_5) %>%
+  mutate(predicted_bei_10 = predict(TEN_BEI_MODEL,TIPS_DF)) %>%
+  mutate(bei_10_residual = PX_LAST_bei_10 - predicted_bei_10) %>%
+  mutate(predicted_bei_30 = predict(THIRTY_BEI_MODEL,TIPS_DF)) %>%
+  mutate(bei_30_residual = PX_LAST_bei_30 - predicted_bei_30)
+```
+
+```{r}
+last(TIPS_DF_PREDICT$predicted_bei_5)
+error5<- last(TIPS_DF_PREDICT$PX_LAST_bei_5) - last(TIPS_DF_PREDICT$predicted_bei_5)
+error5
+```
+
+
+```{r}
+ggplot(TIPS_DF_PREDICT, aes(date)) + geom_line(aes(y=PX_LAST_bei_5, color = "Actual")) + geom_line(aes(y=predicted_bei_5, color = "Predicted")) + theme_minimal() + ggtitle("Actual 5yr BEI vs Predicted 5yr BEI") + theme(legend.position = "bottom") + labs(y="Breakeven Rate") + scale_color_manual(name = "Breakeven", values = c("Actual" = "#FFCC33", "Predicted" = "#3366cc"))
+```
+
+```{r}
+ggplot(TIPS_DF_PREDICT, aes(date)) + geom_line(aes(y=bei_5_residual), color = "darkgreen") + theme_minimal() + ggtitle("5yr BEI Model Residual") + labs(y = "Percent")
+```
+
+
+
+```{r}
+last(TIPS_DF_PREDICT$predicted_bei_10)
+error10<-last(TIPS_DF_PREDICT$PX_LAST_bei_10) - last(TIPS_DF_PREDICT$predicted_bei_10)
+error10
+```
+
+```{r}
+ggplot(TIPS_DF_PREDICT, aes(date)) + geom_line(aes(y=PX_LAST_bei_10, color = "Actual")) + geom_line(aes(y=predicted_bei_10, color = "Predicted")) + theme_minimal() + ggtitle("Actual 10yr BEI vs Predicted 10yr BEI") + theme(legend.position = "bottom") + labs(y="Breakeven Rate") + scale_color_manual(name = "Breakeven", values = c("Actual" = "#FFCC33", "Predicted" = "#3366cc"))
+```
+
+```{r}
+ggplot(TIPS_DF_PREDICT, aes(date)) + geom_line(aes(y=bei_10_residual), color = "darkgreen") + theme_minimal() + ggtitle("10yr BEI Model Residual") + labs(y = "Percent")
+```
+
+
+
+```{r}
+tip30bei<- ggplot(TIPS_DF_PREDICT, aes(date)) + geom_line(aes(y=PX_LAST_bei_30, color = "Actual")) + geom_line(aes(y=predicted_bei_30, color = "Predicted")) + theme_minimal() + ggtitle("Actual 30yr BEI vs Predicted 30yr BEI") + theme(legend.position = "bottom") + labs(y="Breakeven Rate") + scale_color_manual(name = "Breakeven", values = c("Actual" = "#FFCC33", "Predicted" = "#3366cc"))
+tip30bei
+```
+
+```{r}
+tip30res<-ggplot(TIPS_DF_PREDICT, aes(date)) + geom_line(aes(y=bei_30_residual), color = "darkgreen") + theme_minimal() + ggtitle("30yr BEI Model Residual") + labs(y = "Percent") 
+tip30res
+```
+
+```{r}
+last(TIPS_DF_PREDICT$predicted_bei_30)
+error30<- last(TIPS_DF_PREDICT$PX_LAST_bei_30) - last(TIPS_DF_PREDICT$predicted_bei_30)
+error30
+```
+
+```{r}
+aug_five<- augment(FIVE_BEI_MODEL)
+aug_ten<- augment(TEN_BEI_MODEL)
+aug_thirty<- augment(THIRTY_BEI_MODEL)
+last(aug_five$.std.resid)
+last(aug_ten$.std.resid)
+last(aug_thirty$.std.resid)
+```
+```{r}
+ggplot(aug_five, aes(x = .rownames, y = .std.resid)) + geom_line(group=1)
+```
+```{r}
+tp<- c("periodicitySelection"="WEEKLY")
+ts_bei<- bdh(securities = "USGGBE10 Index", 
+           fields = "PX_LAST", 
+           start.date = start_date,include.non.trading.days = "TRUE", options = tp)
+```
+
+
+
+
+```{r}
+xts_bei_10<- na.locf(xts(ts_bei$PX_LAST, order.by = ts_bei$date))
+ts_bei_10<- na.locf(ts(ts_bei$PX_LAST, start = c(2001,1), end = c(2020,54), frequency = 52))
+```
+
+```{r}
+plot(xts_bei_10)
+d_bei<- diff(xts_bei_10)
+plot(d_bei)
+```
+
+```{r}
+dd_bei<- diff(xts_bei_10, lag = 52)
+plot(dd_bei)
+```
+
+```{r}
+acf2(d_bei)
+acf2(dd_bei)
+```
+
+```{r}
+library(forecast)
+sarima(xts_bei_10,2,1,0)
+sarima(xts_bei_10,2,1,0,0,0,0,52)
+auto.arima(xts_bei_10)
+```
+
+```{r}
+sarima.for(xts_bei_10,n.ahead = 52,2,1,0)
+sarima.for(ts_bei_10, n.ahead = 52,2,1,0)
+```
+
+```{r}
+library(PerformanceAnalytics)
+par(mfrow=c(2,1))
+chart.RollingPerformance(R = d_bei, width = 4, FUN = "sd.annualized", scale = 52, main = "Rolling 1-month volatility for 10yr TIPS BEI")
+chart.RollingPerformance(R = d_bei, width = 12, FUN = "sd.annualized", scale = 52, main = "Rolling 3-month volatility for 10yr TIPS BEI")
+```
+
+```{r}
+#weekly standard deviation for 10yr TIPS BEI
+sd(d_bei, na.rm = TRUE)
+```
+
+```{r}
+#annualized standard deviation for 10yr TIPS BEI
+sd(d_bei, na.rm = TRUE) * sqrt(52)
+```
+
+```{r}
+#annualized stardard deviation for 10yr TIPS BEI 2019
+sqrt(52) * sd(d_bei["2019"], na.rm = TRUE)
+```
+
+```{r}
+#compute mean weekly change of 10yr BEI
+m<- mean(d_bei, na.rm = TRUE)
+```
+
+```{r}
+#define prediction errors
+e<- d_bei[2:1042] - m
+e2<- e ^ 2
+```
+
+```{r}
+#plot absolute value of prediction errors
+par(mfrow = c(2,1), mar = c(3,2,2,2))
+plot(abs(e))
+```
+
+```{r}
+#plot the acf of the absolute prediction errors
+acf(abs(e))
+```
+
+```{r}
+#compute the predicted variances
+alpha<- 0.1
+beta<- 0.8
+omega<- var(d_bei,na.rm = TRUE) * (1 - alpha - beta)
+nobs<- length(d_bei)
+predvar<- rep(NA, nobs)
+predvar[1] <- var(d_bei, na.rm = TRUE)
+for(t in 2:nobs){
+  predvar[t] <- omega + alpha + e2[t-1] + beta * predvar[t-1]
+}
+```
+
+```{r}
+#create annualized predicted volatility
+ann_predvol<- xts(sqrt(52) * sqrt(predvar), order.by = time(d_bei))
+```
+
+```{r}
+#plot the annual predicted volatility in 2018 and 2019
+plot(ann_predvol["2018::2019"], main = "Ann. 10yr BEI vol in 2018-2019")
+```
+
+```{r}
+library(rugarch)
+garchspec<- ugarchspec(mean.model = list(armaOrder = c(0,0)),
+              variance.model = list(model = "sGARCH"),
+              distribution.model = "sstd")
+              
+garchfit<- ugarchfit(data = d_bei[2:1042], spec = garchspec)
+```
+
+```{r}
+garchforecast<- ugarchforecast(fitORspec = garchfit, n.ahead = 12)
+garchcoef<- coef(garchfit)
+garchuncvar<- uncvariance(garchfit)
+garchmean<- fitted(garchfit)
+garchvol<- sigma(garchfit)
+print(garchcoef)
+sqrt(garchuncvar)
+plot(garchvol)
+plot(garchvol["2019"])
+tail(garchvol)
+```
+
+```{r}
+#forecasting n-ahead volatility forecast
+sigma(garchforecast)
+```
+
+```{r}
+#mean forecasts of volatility
+fitted(garchforecast)
+```
+
+```{r}
+#standardized returns
+stdret<- residuals(garchfit, standardize = TRUE)
+```
+
+```{r}
+#plot of histogram
+chart.Histogram(stdret, methods = c("add.normal", "add.density"), colorset = c("gray", "red", "blue"))
+```
+
+```{r}
+#model of GJR GARCH
+gjrgarchspec<- ugarchspec(mean.model = list(armaOrder = c(0,0)),
+                        variance.model = list(model = "gjrGARCH"),
+                        distribution.model = "sstd")
+```
+ 
+```{r}                      
+#estimate the GJR GARCH
+gjrgarchfit<- ugarchfit(data = d_bei[2:1042], spec = gjrgarchspec)
+gjrgarchvol<- sigma(gjrgarchfit)
+```
+
+```{r}
+#plot and compare volatility
+plotvol<- plot(abs(d_bei[2:1042]), col = "grey")
+plotvol<- addSeries(gjrgarchvol, col = "red", on = 1)
+plotvol<- addSeries(garchvol, col = "blue", on = 1)
+plotvol
+```
+
+```{r}
+#GJR GARCH coefficients
+coef(gjrgarchfit)
+```
+
+```{r}
+#visualize the volatility response using newsimpact
+out<- newsimpact(gjrgarchfit)
+plot(out$zx,out$zy, xlab = "prediction error", ylab = "predicted variance")
+```
+
+```{r}
+#specify AR(1)-GJR GARCH model
+argarchspec<- ugarchspec(mean.model = list(armaOrder = c(2,0)),
+              variance.model = list(model = "gjrGARCH"),
+              distribution.model = "sstd")
+```
+
+```{r}
+argarchfit<- ugarchfit(data = d_bei[2:1042], spec = argarchspec)
+coef(argarchfit)
+```
+
+```{r}
+#compute prediction errors of GARCH models
+garcherrors<- residuals(garchfit)
+gjrerrors<- residuals(gjrgarchfit)
+arerrors<- residuals(argarchfit)
+```
+
+```{r}
+#compute MSE for variance of GARCH models
+mean((sigma(garchfit)^2 - garcherrors^2)^2)
+mean((sigma(gjrgarchfit)^2 - gjrerrors^2)^2)
+mean((sigma(argarchfit)^2 - arerrors^2)^2)
+```
+
+```{r}
+length(coef(garchfit))
+length(coef(gjrgarchfit))
+length(coef(argarchfit))
+```
+
+```{r}
+likelihood(garchfit)
+likelihood(gjrgarchfit)
+likelihood(argarchfit)
+```
+
+```{r}
+infocriteria(garchfit)
+infocriteria(gjrgarchfit)
+infocriteria(argarchfit)
+```
+
+```{r}
+#compute the standardized returns
+stdret<- residuals(gjrgarchfit, standardize = TRUE)
+mean(stdret)
+sd(stdret)
+```
+
+```{r}
+#correlogram of abs standardized returns
+par(mfrow = c(1,2))
+acf(abs(d_bei[2:1042]),4)
+acf(abs(stdret),4)
+```
+
+```{r}
+#Ljung-Box test
+Box.test(abs(stdret), 4, type = "Ljung-Box")
+```
+
+```{r}
+#Use ugarchroll for rolling estimation of the GJR GARCH model
+garchroll<- ugarchroll(gjrgarchspec, data = d_bei[2:1042], n.start = 208, refit.window = "moving", refit.every = 208)
+```
+
+```{r}
+#set preds to the data frame with rolling predictions
+preds<- as.data.frame(garchroll)
+```
+
+```{r}
+#compare in-sample and rolling sample volatility in one plot
+garchvolroll<- xts(preds$Sigma, order.by = as.Date(rownames(preds)))
+volplot<- plot(gjrgarchvol, col = "darkgrey", lwd = 1.5, main = "In-sample versus rolling vol forecasts")
+volplot<- addSeries(garchvolroll, col = "blue", on = 1)
+plot(volplot)
+```
+
+```{r}
+#dataframe with out-of-sample predictions
+gjrgarchpreds<- as.data.frame(garchroll)
+head(gjrgarchpreds, n = 3)
+```
+
+```{r}
+#prediction errors
+e<- gjrgarchpreds$Realized - gjrgarchpreds$Mu
+d<- e^2 - gjrgarchpreds$Sigma^2
+```
+
+```{r}
+#compute MSE for the garchroll variance prediction
+gjrgarchMSE<- mean(d^2)
+```
+
+```{r}
+#extract the 5% VaR
+garchVaR<- quantile(garchroll, probs = 0.05)
+```
+
+```{r}
+#extract the volatility from preds
+garchvolVaR<- xts(preds$Sigma, order.by = time(garchVaR))
+```
+
+```{r}
+#analyze the co-movement in a time series plot
+garchplot<- plot(garchvolVaR, ylim = c(-0.5, 0.5))
+garchplot<- addSeries(garchVaR, on = 1, col = "blue")
+plot(garchplot, main = "Weekly vol and 5% VaR")
+```
+```{r}
+#model specification with a normal vs skewed student-t distribution
+normgarchspec<- ugarchspec(distribution.model = "norm")
+sstdgarchspec<- ugarchspec(distribution.model = "sstd")
+#rolling estimation
+normgarchroll<- ugarchroll(normgarchspec, data = d_bei[2:1042], n.start = 208, refit.window = 208)
+sstdgarchroll<- ugarchroll(sstdgarchspec, data = d_bei[2:1042], n.start = 208, refit.window = 208)
+```
+
+```{r}
+#compute 5% VaR
+normgarchVaR<- quantile(normgarchroll, probs = 0.05)
+sstdgarchVaR<- quantile(sstdgarchroll, probs = 0.05)
+```
+
+```{r}
+#compute the coverage
+actual<- xts(as.data.frame(normgarchroll)$Realized, time(normgarchVaR))
+mean(actual<normgarchVaR)
+mean(actual<sstdgarchVaR)
+```
+```{r}
+bei10_xts<- xts(bei_10[-1], order.by = bei_10$date)
+```
+
+```{r}
+plot(bei10_xts$PX_LAST, main = "Ten Year TIPS Breakeven Rates", col = "#FFCC33", lwd = 2, ylim = c(-1,4))
+addLegend(legend.loc = "topright", legend.names = ("Breakeven Rate"),  ncol = 1,  fill = ("#FFCC33"))
+```
+
+```{r}
+real_10<- getSymbols("DFII10", src = "FRED", auto.assign = FALSE)
+real_10<- na.locf(real_10$DFII10)
+```
+
+```{r}
+plot(real_10$DFII10['2012/'], main = "Ten Year Real Yields", col = "#FFCC33", lwd = 2, ylim = c(-2,2))
+addLegend(legend.loc = "topright", legend.names = ("Real Yield"),  ncol = 1,  fill = ("#FFCC33"))
+```
