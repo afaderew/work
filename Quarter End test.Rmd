@@ -1,0 +1,296 @@
+---
+title: "Quarter End 10-4-22"
+author: "Andrew"
+date: "2022-10-04"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+##load packages
+library(ggplot2)
+library(zoo)
+library(quantmod)
+library(roll)
+library(Rblpapi)
+library(TTR)
+library(tis)
+con<- blpConnect()
+start_date <- as.Date("2007-10-01")
+non_trade <- "FALSE"
+```
+
+\newpage
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Create Bloomberg function to quickly retrieve data. Ticker = Bloomberg ticker, variable = Bloomberg data field, start = start date of data, days = whether to include non-trading days
+bloom<- function(ticker,variable,start,days){
+  result<- bdh(securities = ticker,
+               fields = variable,
+               start.date = start,
+               include.non.trading.days = days)
+  return(result)
+}
+```
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+##Create a function to pull FRED data, calculate yearly and monthly changes in actual and percentages, and rename columns
+
+fred_func<- function(code1,sector){
+  ahe <- getSymbols(code1, src = "FRED", auto.assign = FALSE)
+  yoy_diff<- diff(ahe,12)
+  mom_diff<- diff(ahe,1)
+  pct_yoy<- (yoy_diff/stats::lag(ahe,12)) * 100
+  pct_mom<- (mom_diff/stats::lag(ahe,1)) * 100
+  ahe<- merge(ahe,yoy_diff,mom_diff,pct_yoy,pct_mom)
+  colnames(ahe)[2]<- paste(sector,"yoy",sep = "_")
+  colnames(ahe)[3]<- paste(sector, "mom", sep = "_")
+  colnames(ahe)[4]<- paste(sector, "pct_yoy",sep = "_")
+  colnames(ahe)[5]<- paste(sector, "pct_mom", sep = "_")
+  return(ahe)
+}
+```
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Create new variables from Bloomberg data and convert to xts
+liq<- bloom("GVLQUSD INDEX", "PX_LAST",start_date,non_trade)
+liq_xts<- xts(liq[,-1], order.by = liq$date)
+colnames(liq_xts)[1]<- "Value"
+```
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Plot of Liquidity Index
+bgli<- plot(liq_xts["2012/"], col = "#FFCC33", main = "Bloomberg Government Liquidity Index")
+addLegend(legend.loc = "topleft", legend.names = c("Liquidity Index: Higher = Worse"),  ncol = 1,  fill = c("#FFCC33"))
+```
+Liquidity is getting worse
+
+\newpage
+
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Retrieving various economic data from FRED
+afcon<- getSymbols("ANFCI", src = "FRED", auto.assign = FALSE)
+hpi_mom<- getSymbols("HPIPONM226S", src = "FRED", auto.assign = FALSE)
+sahm<- getSymbols("SAHMREALTIME", src = "FRED", auto.assign = FALSE)
+lfpr<- getSymbols("CIVPART", src = "FRED", auto.assign = FALSE)
+lfpr_w<- getSymbols("LNS11300002", src = "FRED", auto.assign = FALSE)
+lfpr_prime_age<- getSymbols("LNS11300060", src = "FRED", auto.assign = FALSE)
+lfpr_m<- getSymbols("LNS11300001", src = "FRED", auto.assign = FALSE)
+lfpr_55<- getSymbols("LNS11324230", src = "FRED", auto.assign = FALSE)
+lfpr_16_19<- getSymbols("LNS11300012", src = "FRED", auto.assign = FALSE)
+lfpr_20_24<- getSymbols("LNS11300036", src = "FRED", auto.assign = FALSE)
+lfpr_black<- getSymbols("LNS11300006", src = "FRED", auto.assign = FALSE)
+lfpr_white<- getSymbols("LNS11300003", src = "FRED", auto.assign = FALSE)
+lfpr_hispanic<- getSymbols("LNS11300009", src = "FRED", auto.assign = FALSE)
+lfpr_bachelors<- getSymbols("LNS11327662", src = "FRED", auto.assign = FALSE)
+lfpr_no_college<- getSymbols("LNS11327660", src = "FRED", auto.assign = FALSE)
+lfpr_no_high_school<- getSymbols("LNS11327659", src = "FRED", auto.assign = FALSE)
+lfpr_foreign_born<- getSymbols("LNU01373395", src = "FRED", auto.assign = FALSE)
+foreign_born_labor_level<- getSymbols("LNU01073395", src = "FRED", auto.assign = FALSE)
+jolts<- getSymbols("JTSJOL", src = "FRED", auto.assign = FALSE)
+uer<- getSymbols("UNRATE", src = "FRED", auto.assign = FALSE)
+quits<- getSymbols("JTSQUR", src = "FRED", auto.assign = FALSE)
+labor_force<- getSymbols("CLF16OV", src = "FRED", auto.assign = FALSE)
+labor_force_prime<- getSymbols("LNS11000060", src = "FRED", auto.assign = FALSE)
+labor_force_55<- getSymbols("LNS11024230", src = "FRED", auto.assign = FALSE)
+labor_force_16_19<- getSymbols("LNS11000012", src = "FRED", auto.assign = FALSE)
+labor_force_20_24<- getSymbols("LNS11000036", src = "FRED", auto.assign = FALSE)
+num_unemployed<- getSymbols("UNEMPLOY", src = "FRED", auto.assign = FALSE)
+velo_money<- getSymbols("M2V", src = "FRED", auto.assign = FALSE)
+m2_supply<- getSymbols("WM2NS", src = "FRED", auto.assign = FALSE)
+employ_population<- getSymbols("EMRATIO", src = "FRED", auto.assign = FALSE)
+unemployed_5<- getSymbols("UEMPLT5", src = "FRED", auto.assign = FALSE)
+unemployed_5_14<- getSymbols("UEMP5TO14", src = "FRED", auto.assign = FALSE)
+unemployed_15_26<- getSymbols("UEMP15T26", src = "FRED", auto.assign = FALSE)
+unemployed_27<- getSymbols("UEMP27OV", src = "FRED", auto.assign = FALSE)
+```
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Plot employment to population ratio
+plot(employ_population, col = "#FFCC33", main = "Employment to Population Ratio")
+```
+
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Plot of the Velocity of M2 Money Supply
+plot(velo_money["1995/"], col = "#FFCC33", main = "Velocity of M2 Money Supply")
+```
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Plot of the M2 Money Supply
+plot(m2_supply, col = "#FFCC33", main = "M2 Money Supply")
+```
+
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#merge jolts and number of unemployed, calculate the number of openings per number of unemployed
+open_unemployed<- merge(jolts,num_unemployed)
+open_unemployed<- window(open_unemployed["2000-12-01/"])
+open_unemployed$openings_per_unemployed<- open_unemployed$JTSJOL/open_unemployed$UNEMPLOY
+```
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Plot the number of job openings per number of unemployed
+plot(open_unemployed$openings_per_unemployed, col = "#FFCC33", main = "Job Openings Per Unemployed", ylim = c(0,2.5))
+```
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Plot the number of unemployed people
+plot(open_unemployed$UNEMPLOY, col = "#FFCC33", main = "Number of Unemployed", ylim = c(5000,25000))
+```
+
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Merge labor force size by age into one dataframe, add YEAR as a datapoint for grouping in charts
+all_labor<- merge(labor_force_16_19,labor_force_20_24, labor_force_prime,labor_force_55)
+all_labor$date<- format(index(all_labor),"%Y")
+```
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Plot the size of each age cohort labor force
+plot(all_labor[,-5])
+```
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Merge unemployed, add YEAR as a datapoint for grouping in charts
+all_unemployed<- merge(unemployed_5,unemployed_5_14,unemployed_15_26,unemployed_27)
+all_unemployed$date<- format(index(all_unemployed),"%Y")
+```
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Fortify all_labor and all_unemployed to convert to a dataframe and make date a new variable.  Melt the dataframe into long format for easier grouping
+library(reshape)
+labor_df<- fortify(all_labor)
+labor_df<- labor_df[,1:5]
+melt_labor<- melt(labor_df, id = "Index")
+unemployed_df<- fortify(all_unemployed)
+unemployed_df<- unemployed_df[,1:5]
+melt_unemployed<- melt(unemployed_df, id = "Index")
+```
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Use the melted dataframe to create a stacked area chart of the labor force size by age group
+ggplot(melt_labor, aes(Index,value, fill=variable)) + geom_area() + scale_fill_discrete(labels = c("16-19", "20-24", "25-54", "55+"), name = "Age Group") + ggtitle("US Labor Force Size by Age") + theme_bw() + labs(x = "Date", y = "Thousands Employed") 
+```
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Use the melted dataframe to create a stacked area chart of the labor force size by age group
+ggplot(melt_labor, aes(x=Index, y=value, fill=variable)) + geom_area(stat="identity") + scale_fill_manual(values = c("#FFCC33","gray","#3366cc","lightblue"),labels = c("16-19", "20-24", "25-54", "55+"), name = "Age Group") + ggtitle("US Labor Force Size by Age") + theme_bw() + labs(x = "Date", y = "Thousands Employed")
+```
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Use the melted dataframe to create a stacked area chart of the unemployed by weeks duration
+ggplot(melt_unemployed, aes(x=Index, y=value, fill=variable)) + geom_area(stat="identity") + scale_fill_manual(values = c("#FFCC33","gray","#3366cc","lightblue"),labels = c("< 5 weeks", "5-14 weeks", "15-26 weeks", "27+"), name = "Unemployed") + ggtitle("Total Unemployed by Duration") + theme_bw() + labs(x = "Date", y = "Thousands Unemployed")
+```
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Plot LFPR
+plot(lfpr, col = "#FFCC33", main = "Labor Force Participation Rate")
+```
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Plot JOLTS
+plot(jolts, col = "#FFCC33", main = "Job Openings and Losses")
+```
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Plot Quits Rate
+plot(quits, col = "#FFCC33", main = "Quits Rate", ylim = c(1,3.5))
+```
+
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Calculate the MoM HPI into percentage
+hpi_mom$mom<- (hpi_mom$HPIPONM226S/stats::lag(hpi_mom$HPIPONM226S,1)-1)*100
+```
+
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Plot adjusted financial conditions
+plot(afcon, col = "#FFCC33", main = "Chicago Fed Adjusted Financial Conditions")
+```
+
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Subset the HPI data to 2020 and later
+hpi_sub<- window(hpi_mom["2020/"])
+```
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Barplot of monthly HPI change
+barplot(hpi_sub$mom, ylab = "Monthly % Change", main = "FHFA Monthly Home Price Change %", col = "#FFCC33", cex.names = 0.75, las = 2, ylim = c(-1,2))
+```
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Plot the Sahm recession indicator
+plot(sahm$SAHMREALTIME, col = "#FFCC33", main = "Sahm Recession Indicator", ylab = "Percent Above Unemployment Rate Low")
+nberShade()
+
+```
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Load the tsbox package and convert the sahm xts dataframe into a time series object
+library(tsbox)
+sahm_ts<- ts_ts(sahm)
+```
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Plot the Sahm time series object and add recession shading using nberShade
+plot(sahm_ts, type = 'n', main = "Sahm Recession Indicator", ylab = "Percent Above Unemployment 12M Low", xlab = "Date")
+nberShade()
+lines(sahm_ts, col = "#FFCC33", lwd = 2)
+```
+
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+sahm_df<- data.frame(date = index(sahm), coredata(sahm))
+```
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+(gg<- ggplot(sahm_df) + geom_line(aes(date, SAHMREALTIME), color = "#FFCC33") + theme_light() + labs(x = "Date", y = "Percent Above Unemployment Low") + ggtitle("Sahm Recession Indicator"))
+```
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Create LFPR Matrix for February 2020 and August 2022
+LFPR<- matrix(c(63.4,57.9,69.3,36.6,73.2,83,40.3,63.2,63.3,68,73.2,58.5,47.6,66.9,62.4,57.1,67.8,37.7,70.3,82.8,38.6,61.8,62.1,66.8,73.1,56.4,45.4,66.5),nrow = 2, ncol = 14,byrow=TRUE)
+rownames(LFPR) <- c("February 2020","August 2022")
+colnames(LFPR) <- c("Total", "Women", "Men", "16-19yrs", "20-24yrs", "25-54yrs", "55+", "Black", "White", "Hispanic", "Bachelors Degree", "High School", "No High School", "Foreign Born")
+```
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Create a side by side barplot of the February 2020 and August 2022 participation rates
+barplot(height = LFPR, beside = TRUE, , ylab = "Participation Rate", main = "Participation Rate by Demographic", col = c("#FFCC33","#3366cc"), cex.names = 0.55, las = 2, ylim = c(0,100))
+legend("topright", legend = c("February 2020", "August 2022"), fill = c("#FFCC33", "#3366cc"))
+```
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Merge Jolts and unemployment rate data
+jolts_uer<- merge(jolts,uer)
+jolts_uer<- window(jolts_uer["2000-12-01/"])
+jolts_uer$year<- format(index(jolts_uer),"%Y")
+```
+
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Create plot of unemployment rate vs job openings
+ggplot(as.data.frame(jolts_uer), aes(UNRATE,JTSJOL)) + geom_point(aes(color = year)) + ylab("Job Openings") + xlab("U3 Unemployment Rate") + geom_smooth(method = "loess") + ggtitle("Beveridge Curve: Unemployment vs. Job Openings") + theme_bw()
+```
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Convert the M2 money supply data to monthly time period from weekly and calculate the YoY growth rate
+m2_supply_monthly<- to.period(m2_supply, period = "months")
+m2_supply_monthly$yearly_growth<- (m2_supply_monthly$m2_supply.Close/stats::lag(m2_supply_monthly$m2_supply.Close,12)-1)*100
+m2_supply_monthly$monthly_growth<- (m2_supply_monthly$m2_supply.Close/stats::lag(m2_supply_monthly$m2_supply.Close,1)-1)*100
+```
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Plot the YoY growth rate of the M2 money supply
+barplot(m2_supply_monthly$yearly_growth["2005/"], ylab = "Percent", main = "YoY % Change in M2 Money Supply", col = "#FFCC33", cex.names = 0.75, las = 2)
+```
+
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Plot the YoY growth rate of the M2 money supply
+barplot(m2_supply_monthly$monthly_growth["2018/"], ylab = "Percent", main = "MoM % Change in M2 Money Supply", col = "#FFCC33", cex.names = 0.75, las = 2, ylim = c(-2,10))
+```
+
+
+
+
+
+
