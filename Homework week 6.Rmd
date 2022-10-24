@@ -1,0 +1,185 @@
+---
+title: "Homework Week 6"
+author: "Andrew"
+date: "October 1, 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+##Question 9.1
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(DAAG)
+library(corrplot)
+library(broom)
+library(factoextra)
+```
+
+```{r}
+##Reading the crime data files into R and saving as crime
+crime<- read.delim("uscrime.txt", sep = "\t", header = TRUE)
+```
+
+#Explanation of each variable:
+#Variable	 	Description
+#M		percentage of males aged 14-24 in total state population
+#So		indicator variable for a southern state
+#Ed		mean years of schooling of the population aged 25 years or over
+#Po1		per capita expenditure on police protection in 1960
+#Po2		per capita expenditure on police protection in 1959
+#LF		labour force participation rate of civilian urban males in the age-group 14-24
+#M.F		number of males per 100 females
+#Pop		state population in 1960 in hundred thousands
+#NW		percentage of nonwhites in the population
+#U1		unemployment rate of urban males 14-24
+#U2		unemployment rate of urban males 35-39
+#Wealth		wealth: median value of transferable assets or family income
+#Ineq		income inequality: percentage of families earning below half the median income
+#Prob		probability of imprisonment: ratio of number of commitments to number of offenses
+#Time		average time in months served by offenders in state prisons before their first release
+#Crime		crime rate: number of offenses per 100,000 population in 1960
+
+```{r}
+##inspecting the first five rows of crime, "Crime" is crimes per 100K and the data I will be looking to predict
+head(crime)
+```
+```{r}
+##Creating a dataframe of the predictor variables, i.e. a dataframe that does not include Crime
+crime_two<- crime[,1:15]
+head(crime_two)
+```
+```{r}
+##Creating a dataframe of a given city's data to predict the crime rate using the forthcoming regression models
+predict_city<- matrix(c(14,0,10,12,15.5,0.64,94,150,1.1,0.12,3.6,3200,20.1,0.04,39), nrow = 1, ncol = 15)
+predict_city<- as.data.frame(predict_city)
+names<- colnames(crime[1:15])
+colnames(predict_city)<- names
+rownames(predict_city)[1]<- "city"
+```
+
+```{r}
+##Principal component analysis on the crime data
+pr_test<- prcomp(crime_two, scale = TRUE)
+summary(pr_test)
+```
+```{r}
+##Correlation between principal components
+cor(pr_test$x)
+```
+##The correlation bewtween the model's 15 principal components is essentially zero
+
+```{r}
+##Chart of proportion of variance explained by each PC
+fviz_eig(pr_test)
+```
+
+##Given that the largest percentage of explained variances is gained around 5 dimensions, I will use the first five principal components in my first regression model.  Afterwards I will create a model using only the first four principal components to compare results.
+
+```{r}
+##Matrix containing the eigenvectors for each PC
+pr_test$rotation
+```
+
+
+
+```{r}
+##Eigenvalue for each PC, percent variance captured for each, and the cumulative variance in percent captured
+get_eigenvalue(pr_test)
+```
+```{r}
+##Getting first 5 principal components which explain capture 86.31% of the variance
+(PC<- pr_test$x[,1:5])
+```
+```{r}
+##Regression model using first five principal components, first combining PC's and response variable
+crime_pc<- cbind(PC, crime[,16])
+colnames(crime_pc)[6]<- "Crime"
+head(crime_pc)
+```
+```{r}
+##Creating regression model using newly combined data
+pca_model<- lm(Crime ~ . , data = as.data.frame(crime_pc))
+summary(pca_model)
+```
+
+##The regression model using the first five principal components returns an adjusted r-squared value of 0.6019
+```{r}
+##Reversing PCA, matrix multiplication of the model coefficients by the transposed eigenvectors for the first five PC's
+pca_rev<- pca_model$coefficients[2:6] %*% t(pr_test$rotation[,1:5])
+head(pca_rev)
+```
+
+```{r}
+##Unscaling coefficients and intercept (scale under the PCA = standard deviations, center = mean)
+alpha_unscaled<- pca_rev/pr_test$scale
+intcpt<- pca_model$coefficients[1] - sum(pca_rev*pr_test$center / pr_test$scale)
+```
+
+
+```{r}
+##Using unscaled coefficients to predict the crime rate in the given city and adding the unscaled intercept
+(CR<- sum(alpha_unscaled * predict_city) + intcpt)
+```
+
+##The predicted Crime rate for the test city using the first five principal components is 1388
+
+
+##Re-running the regression using only the first four principal components
+
+```{r}
+##Getting first 4 principal components which explain capture 79.92% of the variance
+PC4<- pr_test$x[,1:4]
+```
+
+```{r}
+##Regression model using first four principal components, first combining PC's and response variable
+crime_pc4<- cbind(PC4, crime[,16])
+colnames(crime_pc4)[5]<- "Crime"
+head(crime_pc4)
+```
+```{r}
+##Creating regression model using newly combined data
+pca_model4<- lm(Crime ~ . , data = as.data.frame(crime_pc4))
+summary(pca_model4)
+```
+
+##The adjusted r-square for the regression model using only the first four principal components falls from 0.60 in the first model to 0.24
+
+```{r}
+##Reversing PCA into unscaled coefficients
+pca_rev4<- pca_model4$coefficients[2:5] %*% t(pr_test$rotation[,1:4])
+head(pca_rev4)
+```
+```{r}
+##Unscaling coefficients and intercept
+alpha_unscaled4<- pca_rev4/pr_test$scale
+intcpt4<- pca_model4$coefficients[1] - sum(pca_rev4*pr_test$center / pr_test$scale)
+```
+
+
+```{r}
+##Using unscaled coefficients to predict the crime rate in the given city
+(CR4<- sum(alpha_unscaled4 * predict_city) + intcpt4)
+```
+
+##The predicted crime rate using only the first four principal components is 1112.678, which is slightly less than the amount predicted by the model using five principal components.
+
+
+##Using both models based on either the first five our four principal components result in reasonable crime rates.  Looking at the Q-Q plot shows that the estimates fall near the middle of the distribution.  Compared to the original models from last week's homework, the adjusted r-squared values are comparable; the model using five principal components has an adjusted r-square of 0.60, while the model using four principal components the adjusted r-square falls to 0.2433.
+
+
+
+
+
+
+
+
+
+
+
+

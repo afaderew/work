@@ -1,0 +1,169 @@
+---
+title: "Homework Week 2"
+author: "Andrew"
+date: "September 6, 2021"
+output: html_document
+---
+#HOMEWORK QUESTION 3.1
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+##setting seed so results are reproducible
+set.seed(1)
+```
+
+```{r}
+library(kernlab)
+library(kknn)
+library(caret)
+```
+
+```{r}
+##Reading the credit card text files into R and saving as data
+data<- read.delim("credit_card_data-headers.txt", sep = "\t", header = TRUE)
+```
+
+```{r}
+##Convert credit card data into a dataframe to be used in the kknn model
+data_df<- as.data.frame(data)
+```
+
+```{r}
+##Splitting data into training, validation, and test
+data_split<- sample(1:3, nrow(data_df),prob =  c(0.6,0.2,0.2), replace = TRUE)
+train_data<- data_df[data_split == 1,]
+valid_data<- data_df[data_split == 2,]
+test_data<-  data_df[data_split == 3,]
+```
+
+```{r}
+##Create a vector of possible k values to see how the accuracy of the model changes with different k values
+k_value<- seq(1,100,1)
+```
+
+```{r}
+##Write function that enables me to test multiple values of 'k' in the cv.kknn model
+k_func<- function(k){
+  k_cv<- cv.kknn(R1~., train_data,kcv = 10, k=k, kernel = "rectangular", scale = TRUE)
+  return(round(k_cv[[1]],0))
+}
+```
+
+```{r}
+##Vectorize k_func which enables me to apply a vector of different k values
+v_kfunc<- Vectorize(k_func, vectorize.args =  "k")
+```
+
+```{r}
+##Applying the vectorized function, v_kfunc, to the multiple values of k and creating a vector of the actual data that I want to compare the predictions to.
+pred_values<- v_kfunc(k_value)
+train_values<- train_data$R1
+```
+
+```{r}
+##Creating a data frame comparing each column of predictions to the actual result
+correct<- pred_values == train_values
+```
+
+```{r}
+##Calculate accuracy for each column, which represents different values of k
+(k_acc<- colMeans(correct))
+(max_k<- max(k_acc))
+(which(k_acc == max_k))
+```
+```{r}
+##Plotting accuracy of cross-validated kknn model
+plot(k_acc, type = 'l', col = 'red', xlab = 'k value', ylab = 'Accuracy', main = 'Accuracy of kknn model with different k values')
+```
+
+
+#The above chart and data show that at k=31 and k = 51 the model's accuracy peaks at 93.40102% using the training data.  I used the smallest number of k (k=31) to continue using the validation and test data.
+```{r}
+##Creating next cv.kknn model using optimal value of k = 31
+valid_kknn<- cv.kknn(R1~., valid_data,kcv = 10, k=31, kernel = "rectangular", scale = TRUE)
+valid_preds<- as.data.frame(round(valid_kknn[[1]],0))
+valid_values<- valid_data$R1
+```
+
+```{r}
+##Creating a data frame comparing each column of predictions to the actual result
+correct2<- valid_preds$yhat == valid_values
+```
+
+```{r}
+##Calculate accuracy for each column, which represents different values of k
+(k_acc2<- mean(correct2))
+```
+##Using the same model parameters from the training data with k = 31, the model's accuracy declines to 82.44275% with the validation data
+```{r}
+##Using test data for the model at k = 31
+test_kknn<- cv.kknn(R1~., test_data,kcv = 10, k=31, kernel = "rectangular", scale = TRUE)
+test_preds<- as.data.frame(round(test_kknn[[1]],0))
+test_values<- test_data$R1
+```
+
+```{r}
+##Creating a data frame comparing each column of predictions to the actual result
+correct3<- test_preds$yhat == test_values
+```
+
+```{r}
+##Calculate accuracy for each column, which represents different values of k
+(k_acc3<- mean(correct3))
+```
+#In the final step, I ran the cv.kknn model with k=32 on the test data.  The accuracy declined to 80.62016%.
+
+
+#HOMEWORK QUESTION 4.2
+```{r}
+##Taking a look at the first few rows of the iris data
+head(iris)
+```
+```{r}
+##Splitting the iris dataset predictors from our response labels
+iris_predictors<- iris[,c(1:4)]
+iris_response<- as.integer(iris$Species)
+```
+
+```{r}
+##scaling the data to be used in the kmeans model
+iris_predictors_scale<- scale(iris_predictors, center = TRUE, scale = FALSE)
+```
+
+```{r}
+##Creating the kmeans model on the scaled data, centers should equal three because there are only three unique types of responses
+set.seed(123)
+kmeans_model<- kmeans(iris_predictors_scale, centers = 3)
+```
+
+```{r}
+##Extracting the kmeans_model number of entries for each cluster and where each point falls in the clusters
+kmeans_model$size
+kmeans_model$cluster
+```
+
+
+```{r}
+##Create confusion matrix comparing kmeans_model predicted clusters to actual clusters; cluster 1 = setosa, cluster 2 = versicolor, cluster 3 = virginica
+table(kmeans_model$cluster, iris_response)
+```
+```{r}
+##Computing accuracy of kmeans_model
+(accuracy<- mean(kmeans_model$cluster == iris_response))
+```
+```{r}
+par(mfrow=c(2,2))
+##Comparing the modeled clusters based on sepal length and width to the actual clusters
+plot(iris_predictors[c(1,2)], col = kmeans_model$cluster, main = "Modeled clusters using sepal dimensions")
+plot(iris_predictors[c(1,2)], col = iris_response, main = "Actual clusters using sepal dimensions")
+#Comparing the modeled clusters based on petal length and width to the actual clusters
+plot(iris_predictors[c(3,4)], col = kmeans_model$cluster, main = "Modeled clusters using petal dimensions")
+plot(iris_predictors[c(3,4)], col = iris_response, main = "Actual clusters using petal dimensions")
+```
+
+
+#The above plots show the modeled clusters against the actual clusters based on comparisons of the sepal length/width and petal length and width.  Most of the modeled clusters match with the exception of a few data points that are incorrect.
+
+

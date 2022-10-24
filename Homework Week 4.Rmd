@@ -1,0 +1,91 @@
+---
+title: "Homework Week 4"
+author: "Andrew"
+date: "September 17, 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(xts)
+library(lubridate)
+library(smooth)
+```
+
+
+```{r}
+##Reading the temperature data files into R and saving as temps
+temps<- read.delim("temps.txt", sep = "\t", header = TRUE)
+```
+
+```{r}
+##Viewing the first few rows of temps
+head(temps)
+```
+
+```{r}
+##Summary statistics of temps
+summary(temps)
+```
+#From last week's homework, the CUSUM approach determined that the last day of unoffical summer in Atlanta was September 25th (work attached showing how I derived this date).  I will now slice the temps data to include dates ranging from July 1st to September 25th.
+```{r}
+##Slicing temps into July 1st to September 25th date range.
+which(temps$DAY == "25-Sep")
+temps_summer<- temps[1:87,]
+```
+```{r}
+##Tail of new summer data
+tail(temps_summer)
+```
+```{r}
+##Calculating average summer temperature by year
+avg_temp<- as.data.frame(colMeans(temps_summer[,-1]))
+```
+
+```{r}
+##Changing column names to equal year
+year_seq<- seq(from = 1996, to = 2015, by = 1)
+rownames(avg_temp)<- year_seq
+colnames(avg_temp)<- "average"
+```
+
+```{r}
+##Plotting average summer temperature
+plot(avg_temp$average, type = "l", xlab = "Years", col = "red", main = "Average Summer Temp. by Year", ylab = "Temperature", xaxt = "n")
+axis(1, at = 1:20, labels = rownames(avg_temp), las = 2)
+```
+
+```{r}
+##Adding a date class column to the average temperatures data
+dates<- as.Date(rownames(avg_temp), format = "%Y")
+avg_temp<- cbind(avg_temp,dates)
+```
+
+```{r}
+##Converting to an xts object
+avg_temp_xts<- xts(avg_temp[,-2], order.by = avg_temp$dates)
+names(avg_temp_xts)<- "average_temp"
+```
+
+
+```{r}
+##Running Holt Winters smoothing
+smooth<-es(avg_temp_xts$average_temp, model = "AAM")
+```
+
+```{r}
+##Adding smooth$fitted values to avg_temp
+avg_temp_es<- cbind(avg_temp,smooth$fitted)
+colnames(avg_temp_es)[3]<- "smoothed"
+```
+
+
+```{r}
+##Plotting average summer temperature
+plot(avg_temp_es$average, type = "l", xlab = "Years", col = "red", main = "Average Summer Temp. by Year", ylab = "Temperature", xaxt = "n")
+axis(1, at = 1:20, labels = rownames(avg_temp_es), las = 2)
+lines(avg_temp_es$smoothed)
+```

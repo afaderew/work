@@ -1,0 +1,290 @@
+---
+title: "Homework_Week_10"
+author: "Andrew"
+date: "October 28, 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(assertive)
+library(broom)
+```
+
+
+
+##Question 14.1
+```{r}
+##Reading the Wisconsin breast cancer data set in as bcwd
+bcwd<- read.delim("bcwd.txt", sep = ",", header = FALSE)
+head(bcwd)
+```
+
+```{r}
+##Assigning column names to the data
+colnames(bcwd)<- c("sample_code", "clump_thickness","uniformity_of_cell_size","uniformity_of_cell_shape","marg_adhesion","sing_epit_cell_size","bare_nuc","bland_chrom","norm_nuc","mitoses","class")
+head(bcwd)
+```
+```{r}
+##Summary stats of dataset
+summary(bcwd)
+```
+##From the above summary of the dataset, we can see that the bare_nuc column is classified as a character column.  The attribute information shows that the data should be numeric with a value between 1 and 10
+
+```{r}
+##Checking for ? which indicate missing data
+colSums(bcwd == '?')
+```
+##From the column sums function, we can see that the 16 missing values are located in the bare nuclei column.  I will now filter for the rows that contain the missing values.
+```{r}
+##Filtering for rows containing ? and saving for a reference
+bcwd_missing<- bcwd %>%
+  filter(bare_nuc == '?') 
+```
+
+
+```{r}
+##Converting the bare_nuc column to numeric in order to calculate the mean and mode
+bcwd$bare_nuc<- as.numeric(bcwd$bare_nuc)
+```
+```{r}
+##Filtering for rows containing missing data and adding missing column to identify rows containing missing data
+bcwd<- bcwd %>%
+  mutate(missing = is.na(bare_nuc)) 
+```
+
+```{r}
+##Calculating the mean of the bare nuclei column excluding NA's
+(mean_bn<- mean(bcwd$bare_nuc,na.rm = TRUE))
+```
+
+```{r}
+##Creating a function to get the mode
+mode_func<- function(x){
+  uniq<- unique(x)
+  uniq[which.max(tabulate(match(x,uniq)))]
+}
+```
+
+```{r}
+##Getting mode form bare nuclei column
+(mode_bn<- mode_func(bcwd$bare_nuc))
+```
+```{r}
+##Creating new dataframe and replacing the missing values in the bare nuclei column with the mean
+bcwd_mean<- bcwd
+bcwd_mean$bare_nuc<- ifelse(is.na(bcwd_mean$bare_nuc), mean_bn, bcwd_mean$bare_nuc)
+summary(bcwd_mean)
+```
+
+```{r}
+##Checking to see if NA's are removed
+assert_all_are_not_na(bcwd_mean)
+```
+
+```{r}
+##Confirming that the missing data is now the mean
+bcwd_mean %>%
+  filter(missing == TRUE)
+```
+##The above dataset, filtered by 'missing' equal to TRUE (indicating that the original data was missing), now shows that the value for the bare_nuc is the mean
+
+```{r}
+##Creating new dataframe and replacing the missing values in the bare nuclei column with the mode
+bcwd_mode<- bcwd
+bcwd_mode$bare_nuc<- ifelse(is.na(bcwd_mode$bare_nuc), mode_bn, bcwd_mode$bare_nuc)
+```
+
+```{r}
+##Checking to see if NA's are removed
+assert_all_are_not_na(bcwd_mode)
+```
+
+```{r}
+##Confirming that the missing data is now the mode
+bcwd_mode %>%
+  filter(missing == TRUE)
+```
+##The filtered dataset above now also visually confirms that the missing data in the bare_nuc column is now the mode with a value of 1
+
+
+
+##Part 2 of Question 14.1 using regression impute the missing data
+
+```{r}
+##Creating a regression model to predict the missing value. Removed sample code number and omitted NA's from the regression model
+bare_nuc_pred<- lm(bare_nuc~ clump_thickness + uniformity_of_cell_size + uniformity_of_cell_shape + marg_adhesion + sing_epit_cell_size + bland_chrom + norm_nuc + mitoses + class, data = bcwd, na.action = na.omit)
+summary(bare_nuc_pred)
+out<- summary(bare_nuc_pred)
+```
+
+```{r}
+##Replicating the original dataset and replacing NA's with the regression model fitted value
+bcwd_reg<- bcwd
+bcwd_reg<- bcwd_reg %>%
+  mutate(fit_value = predict(bare_nuc_pred,bcwd_reg)) %>%
+  mutate(bare_nuc = ifelse(is.na(bare_nuc), fit_value,bare_nuc))
+```
+
+```{r}
+##Confirming that the missing data is now the regression model predicted value
+bcwd_reg %>%
+  filter(missing == TRUE)
+```
+##The above dataset, filtered by the 'missing' indicator set to TRUE shows that the original missing bare_nuc data is now replaced with the regression model predicted value
+
+
+##I will now replace the missing values using regression with perturbation.  Below, I create a new dataset based off of the original, predict the fitted values using the regression, add a perturbation to the fitted values using the rnorm function, change any values that fall outside of the 1-10 range, and then replace the missing data with the imputed values.
+
+```{r}
+##Using regression with perturbation
+set.seed(123)
+bcwd_reg_pert<- bcwd
+bcwd_reg_pert<- bcwd_reg_pert %>%
+  mutate(fit_value = predict(bare_nuc_pred,bcwd_reg_pert)) %>%
+  mutate(fit_value_ptbt = rnorm(fit_value,fit_value,1)) %>%
+  mutate(fit_value_ptbt = ifelse(fit_value_ptbt<1,1,fit_value_ptbt)) %>%
+  mutate(fit_value_ptbt = ifelse(fit_value_ptbt>10,10, fit_value_ptbt)) %>%
+  mutate(bare_nuc = ifelse(is.na(bare_nuc), fit_value_ptbt,bare_nuc))
+```
+
+```{r}
+##Confirming that the missing data is now the regression model predicted value
+bcwd_reg_pert %>%
+  filter(missing == TRUE)
+```
+
+##In parts one through three of the homework I replaced missing values with the mean (bcwd_mean), mode (bcwd_mode), fitted regression value (bcwd_reg), and regression with perturbation (bcwd_reg_pert).  For part four, I will create a KNN model that will classify whether each case is benign or malignant (class column, 2 = benign, 4 = malignant).I have already added a binary variable that indicates if the row originally contained missing data.
+
+##Part 4.1
+
+```{r}
+##Converting the class column in each dataset to 0 for benign and 1 for malignant
+bcwd_mean$class<- as.integer(bcwd_mean$class == 4)
+bcwd_mode$class<- as.integer(bcwd_mode$class == 4)
+bcwd_reg$class<- as.integer(bcwd_reg$class == 4)
+bcwd_reg_pert$class<- as.integer(bcwd_reg_pert$class == 4)
+```
+
+```{r}
+##Counting the number of malignant cases for each data set
+sum(bcwd_mean$class)
+sum(bcwd_mode$class)
+sum(bcwd_reg$class)
+sum(bcwd_reg_pert$class)
+```
+
+
+```{r}
+##Converting the missing column in each dataset to 0 for not missing data and 1 for missing data
+bcwd_mean$missing<- as.integer(bcwd_mean$missing == TRUE)
+bcwd_mode$missing<- as.integer(bcwd_mode$missing == TRUE)
+bcwd_reg$missing<- as.integer(bcwd_reg$missing == TRUE)
+bcwd_reg_pert$missing<- as.integer(bcwd_reg_pert$missing == TRUE)
+```
+
+```{r}
+##Loading the k-nearest neighbors package
+library(kknn)
+```
+
+```{r}
+##Splitting the datasets into training and test for the bcwd_mean dataset
+train_row_mean<- sample(1:nrow(bcwd_mean), 0.8 * nrow(bcwd_mean))
+train_mean_df<- bcwd_mean[train_row_mean,]
+test_mean_df<- bcwd_mean[-train_row_mean,]
+```
+
+```{r}
+##Splitting the datasets into training and test for the bcwd_mode dataset
+train_row_mode<- sample(1:nrow(bcwd_mode), 0.8 * nrow(bcwd_mode))
+train_mode_df<- bcwd_mode[train_row_mode,]
+test_mode_df<- bcwd_mode[-train_row_mode,]
+```
+
+```{r}
+##Splitting the datasets into training and test for the bcwd_reg dataset
+train_row_reg<- sample(1:nrow(bcwd_reg), 0.8 * nrow(bcwd_reg))
+train_reg_df<- bcwd_reg[train_row_reg,]
+test_reg_df<- bcwd_reg[-train_row_reg,]
+```
+
+```{r}
+##Splitting the datasets into training and test for the bcwd_reg_pert dataset
+train_row_reg_pert<- sample(1:nrow(bcwd_reg_pert), 0.8 * nrow(bcwd_reg_pert))
+train_reg_pert_df<- bcwd_reg_pert[train_row_reg_pert,]
+test_reg_pert_df<- bcwd_reg_pert[-train_row_reg_pert,]
+```
+
+```{r}
+##Creating a knn model using the dataset with missing values replaced by the mean
+set.seed(123)
+kkn_mean<- kknn(class~.,train_mean_df,test_mean_df, k = 5, scale = TRUE)
+fit_mean<- round(fitted(kkn_mean),0)
+table(test_mean_df$class,fit_mean)
+```
+```{r}
+##Creating a knn model using the dataset with missing values replaced by the mode
+set.seed(123)
+kkn_mode<- kknn(class~.,train_mode_df,test_mode_df, k = 5, scale = TRUE)
+fit_mode<- round(fitted(kkn_mode),0)
+table(test_mode_df$class,fit_mode)
+```
+```{r}
+##Creating a knn model using the dataset with missing values replaced by the regression fitted value
+set.seed(123)
+kkn_reg<- kknn(class~.,train_reg_df,test_reg_df, k = 5, scale = TRUE)
+fit_reg<- round(fitted(kkn_reg),0)
+table(test_reg_df$class,fit_reg)
+```
+
+```{r}
+##Creating a knn model using the dataset with missing values replaced by the regression with perturbation fitted value
+set.seed(123)
+kkn_reg_pert<- kknn(class~.,train_reg_pert_df,test_reg_pert_df, k = 5, scale = TRUE)
+fit_reg_pert<- round(fitted(kkn_reg_pert),0)
+table(test_reg_pert_df$class,fit_reg_pert)
+```
+
+```{r}
+##Calculating the accuracy for each knn model
+(acc_mean<- paste("The accuracy of the dataset with NA's replaced with the mean is:",sum((fit_mean == test_mean_df$class)/(nrow(test_mean_df)))))
+(acc_mode<- paste("The accuracy of the dataset with NA's replaced with the mode is:",sum((fit_mode == test_mode_df$clas)/(nrow(test_mode_df)))))
+(acc_reg<- paste("The accuracy of the dataset with NA's replaced with the fitted regression value is:",sum((fit_reg == test_reg_df$class)/(nrow(test_reg_df)))))
+(acc_reg_pert<- paste("The accuracy of the dataset with NA's replaced with the fitted regression with perturbation is:",sum((fit_reg_pert == test_reg_pert_df$class)/ (nrow(test_reg_pert_df)))))
+```
+
+##The above accuracy calculations show that the dataset with missing values replaced by regression with perturbation is the best performing.  The dataset with missing values replaced by the mean was the worst performing at predicting malignant tumors, followed by the mode, and then plain regression.  I was surprised to see the regression with perturbation as being the most accurate; the presentation slides for this week suggested that regression with perturbation was less accurate on average than plain regression values, but captured the variability of the data better.
+
+#Part 4.2 & 4.3 Removing missing values from the dataset
+```{r}
+##Creating a dataset that has missing data rows removed
+bcwd_na_rm<- bcwd %>%
+  filter(bare_nuc != '?') 
+bcwd_na_rm$class<- as.integer(bcwd_na_rm$class == 4)
+```
+
+```{r}
+##Creating train and test sets for the data with rows of missing data removed
+train_row_na<- sample(1:nrow(bcwd_na_rm), 0.8 * nrow(bcwd_na_rm))
+train_na_df<- bcwd_na_rm[train_row_na,]
+test_na_df<- bcwd_na_rm[-train_row_na,]
+```
+
+```{r}
+##Creating a knn model using the dataset with missing values removed
+set.seed(123)
+kkn_na_rm<- kknn(class~.,train_na_df,test_na_df, k = 5, scale = TRUE)
+fit_na_rm<- round(fitted(kkn_na_rm),0)
+table(test_na_df$class,fit_na_rm)
+```
+```{r}
+##Calculating the accuracy of the knn model with missing data removed
+(acc_na_rm<- paste("The accuracy of the dataset with NA's removed:",sum((fit_na_rm == test_na_df$class)/(nrow(test_na_df)))))
+```
+
+##The overall accuracy of the KNN model after removing missing values from the dataset is still relatively good.  It had a 95.62% accuracy, which was better than the KNN model using the mean value for missing values. 

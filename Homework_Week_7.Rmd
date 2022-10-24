@@ -1,0 +1,319 @@
+---
+title: "Homework Week 7"
+author: "Andrew"
+date: "October 7, 2021"
+output:
+  word_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(rpart)
+library(randomForest)
+library(rpart.plot)
+library(rattle)
+library(RColorBrewer)
+```
+
+##Question 10.1
+
+```{r}
+##Reading the crime data files into R and saving as crime
+crime<- read.delim("uscrime.txt", sep = "\t", header = TRUE)
+```
+
+#Explanation of each variable:
+#Variable	 	Description
+#M		percentage of males aged 14-24 in total state population
+#So		indicator variable for a southern state
+#Ed		mean years of schooling of the population aged 25 years or over
+#Po1		per capita expenditure on police protection in 1960
+#Po2		per capita expenditure on police protection in 1959
+#LF		labour force participation rate of civilian urban males in the age-group 14-24
+#M.F		number of males per 100 females
+#Pop		state population in 1960 in hundred thousands
+#NW		percentage of nonwhites in the population
+#U1		unemployment rate of urban males 14-24
+#U2		unemployment rate of urban males 35-39
+#Wealth		wealth: median value of transferable assets or family income
+#Ineq		income inequality: percentage of families earning below half the median income
+#Prob		probability of imprisonment: ratio of number of commitments to number of offenses
+#Time		average time in months served by offenders in state prisons before their first release
+#Crime		crime rate: number of offenses per 100,000 population in 1960
+
+```{r}
+##inspecting the first five rows of crime, "Crime" is crimes per 100K and the data I will be looking to predict
+head(crime)
+```
+
+```{r}
+##Regression Tree model using rpart
+tree1<- rpart(Crime~., data = crime, method = 'anova')
+summary(tree1)
+```
+```{r}
+##Plotting regression tree
+fancyRpartPlot(tree1)
+```
+
+##The above regression tree chart shows that the three splitting predictors are Po1 (per capita police spending in 1960), Pop (state popluation), and NW (percent of non-whites in the population).  Interpreting the tree shows that if per capita police spending is less than 7.7 follow the branch down to the left.  Per capita police spending more than 7.7 follows the branch down to the right.  For police spending less than 7.7, the next node asks if the population is greater than or less than 2.3 million.  Populations under 2.3 million results in 12 cities with a crime rate of 550 per 100,000; populations greater than 2.3 milion results in 11 cities with a crime rate of 800 per 100,000.  On the other side of the decision tree, where polic spending was greater than 7.7, the next node is the percent of non-whites in the population.  If the percent of non-whites is less than 7.7, the terminal leaf shows 10 cities with a crime rate of 887 per 100,000.  A population of non-whites greater than 7.7 results in a final leaf of 14 cities with a crime rate of 1305 per 100,000.
+
+```{r}
+##Making predictions using the model and plotting against actual crime rates
+predicted_crime<- predict(tree1)
+plot(predicted_crime,crime$Crime)
+```
+
+```{r}
+##Plot one is of R-squared value by number of splits from model and cross-validated model; plot two is the relative error from cross validation by the number of splits
+r_sq<- rsq.rpart(tree1)
+```
+
+##The above plots show that the r-squared value for the non-cross-validated model climbs to almost 0.6 after three splits.  Using cross-validation, however, the r-squared value of the model remains low, maxing out near 0.1 after one split and falling after further splits.  The significant difference between the model's high r-square value and the cross-validated r-square value shows that the model is likely overfitted.
+
+```{r}
+##Manually pruning the decision tree
+prune_tree<- prune.rpart(tree1,cp = 0.1)
+fancyRpartPlot(prune_tree)
+```
+
+##Manually pruning the tree using a complexity parameter (cp) of 0.1 resulted in a tree with three end leaves.  Po1 is still the top factor splitting the data into two groups with percapita spending greater than or less than 7.7.  Spending less than 7.7 results in 23 instances (49% of the data) with a predicted crime rate  of 670 per 100,000; per capita spending greater than 7.7 moves down the tree to the right where the percent of non-whites in the population (NW) is the next deciding factor.  Populations with a NW level less than 7.7% results in 10 states (21% of the data) and a predicted crime rate of 887; NW populations greater than 7.7% results in 14 states (30% of the data) and a crime rate of 1305.
+
+```{r}
+##Making predictions using the model and plotting against actual crime rates
+predicted_crime2<- predict(prune_tree)
+plot(predicted_crime2,crime$Crime)
+```
+
+```{r}
+##Plot one is of R-squared value by number of splits from model and cross-validated model; plot two is the relative error from cross validation by the number of splits
+r_sq<- rsq.rpart(prune_tree)
+```
+
+##The pruned tree model's r-square value with two splits appears slightly less than the more complex first model, but the cross-validated results show a slightly higher r-square value.  In general, the less complex model looks less overfitted than the first model that had more splits.
+
+##Creating one more model with higher complexity
+
+```{r}
+##Manually pruning the decision tree
+prune_tree2<- prune.rpart(tree1,cp = 0.00001)
+fancyRpartPlot(prune_tree2)
+```
+
+##The above tree, even with a very small complexity parameter, i.e., the minimum improvement in variance need by the model, the model returned is the same as our first one.
+
+
+##Creating Random Forest Models
+
+```{r}
+##Creating a Random Forest Model for the crime data
+set.seed(123)
+num_pred<- 10
+(rf1<- randomForest(Crime~., data = crime, mtry = num_pred, importance = TRUE, ntree = 500))
+summary(rf1)
+```
+```{r}
+randomForest::importance(rf1)
+```
+
+##After creating the initial model above, I will now create several random forest models with different values of the 'mtry' inputs to see how it affects model accuracy.
+
+```{r}
+##Creating a vector of the number of variables to be sampled at each split
+n_pred_vect<- seq(1,10,1)
+```
+
+
+```{r}
+##Write function that enables me to test multiple values of 'mtry' 
+mtry_func<- function(n){
+  n1<- randomForest(Crime~., data = crime, mtry = n, importance = TRUE, ntree = 500)
+  return(n1)
+}
+```
+
+
+```{r}
+##Creating a vectorized random forest model to see how changin the number of variables at each split affects model accuracy
+set.seed(123)
+vector_rf<- Vectorize(mtry_func, vectorize.args = "n")
+```
+
+
+```{r}
+##Running the vectorized randomForest model using a 1-10 sequence of values for the "mtry" argument
+set.seed(123)
+pred_rf<- vector_rf(n_pred_vect)
+paste("The R-square value for mtry = 1 is",last(pred_rf[,1]$rsq))
+paste("The R-square value for mtry = 2 is",last(pred_rf[,2]$rsq))
+paste("The R-square value for mtry = 3 is",last(pred_rf[,3]$rsq))
+paste("The R-square value for mtry = 4 is",last(pred_rf[,4]$rsq))
+paste("The R-square value for mtry = 5 is",last(pred_rf[,5]$rsq))
+paste("The R-square value for mtry = 6 is",last(pred_rf[,6]$rsq))
+paste("The R-square value for mtry = 7 is",last(pred_rf[,7]$rsq))
+paste("The R-square value for mtry = 8 is",last(pred_rf[,8]$rsq))
+paste("The R-square value for mtry = 9 is",last(pred_rf[,9]$rsq))
+paste("The R-square value for mtry = 10 is",last(pred_rf[,10]$rsq))
+```
+
+##The above R-square values show that the percent of variance explained by each iteration of a different "mtry" argument varies between 0.36 and 0.43.  It appears that the highest r-square value is obtained when "mtry" =  4.
+
+```{r}
+##Running the randomForest model with "mtry" = 4
+set.seed(123)
+(rf4<- randomForest(Crime~., data = crime, mtry = 4, importance = TRUE, ntree = 500))
+summary(rf4)
+```
+
+```{r}
+##Predicting using the randomForest model
+rf_predict<- predict(rf4)
+plot(rf_predict,crime$Crime)
+```
+
+##In general, while the overall R-square around 0.4 was relatively low, the random forest model does a decent job predicting crime rates.  From the above chart, you can see that there is a positive correlation between the predicted crime rates and actual crime rates, i.e., if the model predicts a high crime rate it somewhat matches the actual high crime rate, and vice versa.  There are several instances, however where the model predicted a significantly different value than actual.  Further improvements can be made to the model to obtain more accurate results.
+
+
+
+
+
+##Question 10.3
+
+```{r}
+##Reading the credit data files into R and saving as german, 1 = good credit risk, 2 = bad credit risk (contained in the 21st column)
+german<- read.table("germancredit.txt", header = FALSE)
+colnames(german)[21]<- "Good_Bad"
+head(german)
+```
+
+
+```{r}
+##Creating a column mapping good and bad credit to zeroes and ones to use in the logistic regression. 1 = bad credit, 0 = good credit
+german$ind<- as.integer(german$Good_Bad == 2)
+head(german)
+```
+
+
+```{r}
+##Removing column of ones and two's to use in the logistic regression model
+german_clean<- german[,-21]
+head(german_clean)
+```
+
+
+
+```{r}
+##Splitting the data into train and test
+train_rows<- sort(sample(nrow(german_clean),nrow(german_clean)*0.8))
+german_train<- german_clean[train_rows,]
+german_test<- german_clean[-train_rows,]
+head(german_train)
+head(german_test)
+```
+
+
+
+
+```{r}
+##Logistic regression model for the data
+set.seed(123)
+german_glm<- glm(ind~., data = german_train, family = binomial(link = "logit"))
+summary(german_glm)
+```
+
+
+```{r}
+##Using fitted model to predict and compare to test data
+german_predict<- predict(german_glm,german_test, type = "response")
+```
+
+
+```{r}
+library(pROC)
+roc(german_test$ind,round(german_predict))
+```
+
+
+##The initial model produced an AUC of 0.6867 against the test data
+
+```{r}
+##Setting threshold probability for the model and looking at the confusion matrix
+thresh<- 0.8
+german_predict_thresh<- as.integer(german_predict> thresh)
+(conf_matrix<- as.matrix(table(german_predict_thresh, german_test$ind)))
+```
+
+
+##The above confusion matrix shows that the model correctly predicted 144 good credits as 'good', 9 bad credits as 'bad', but incorrectly predicted 42 bad credits as 'good' and 5 good credits as 'bad'.  
+
+```{r}
+##Computing the cost of the model, incorrectly identifying a 'bad' customer as good is 5X worse than incorrectly classifying a 'good' customer as bad
+##Cost the (5 x # of bad credits classified as good) + (1 x # of good credits classified as bad)
+(cost1<- (5 * conf_matrix[1,2])) + (conf_matrix[2,1])
+```
+
+##I will now explore how changing the threshold values affects the cost function for the logistic regression model
+
+```{r}
+##Creating a vector of thresholds
+thresh_seq<- seq(0.05,0.95,0.05)
+```
+
+
+```{r}
+##Creating function to compare several threshold levels in the model
+thresh_func<- function(x){
+  pt<- as.integer(german_predict>x)
+  return(pt)
+}
+```
+
+
+```{r}
+##Applying threshold function across vector of thresholds
+thresholds<-lapply(thresh_seq, thresh_func)
+```
+
+
+```{r}
+##Function to create confusion matrices across all thresholds
+cm_func<- function(y){
+  mtx<- as.matrix(table(y,german_test$ind))
+  return(mtx)
+}
+```
+
+
+```{r}
+##Applying confusion matrix function to see confusion matrix for each threshold (each list item represents a threshold value of 0.05 x list item #, e.g., item 5 in the list = 0.05 * 5 = 0.25 threshold)
+(thresh_mtx<- lapply(thresholds,cm_func))
+```
+
+```{r}
+##Creating a cost function
+cost_per_thresh<- function(x){
+  cpt<- (5 * x[1,2]) + (x[2,1])
+  return(cpt)
+}
+```
+
+
+```{r}
+##Applying the cost function across all threshold confusion matrices
+lapply(thresh_mtx,cost_per_thresh)
+```
+
+##Using the cost function across the list of threshold values shows that a threshold of 0.35 (item 7 in the list) has the lowest cost at 107.  Since classifying bad credits as 'good' is five times more costly than classifying good credits as 'bad', the model using a threshold of 0.35 minimzes the number of bad credits classified as 'good'.  The confusion matrix for a threshold of 0.35 shows that the model correctly classified 102 good credits as 'good', 39 bad credits as 'bad', and incorrectly classified 12 bad credits as 'good' and 47 good credits as 'bad'. The total cost at this threshold = (5 x 12 bad credits classed as good) + (47 good credits classed as 'bad') = 107
+
+##The low threshold values classify more good credits as 'bad', but the lower thresholds do a better job than higher thresholds at identifying true bad credits.  Higher thresholds identify more actual good credits, but also classify more actual 'bad' credits as 'good'.
+
+
+
+
+

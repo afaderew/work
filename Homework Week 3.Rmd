@@ -1,0 +1,102 @@
+---
+title: "Homework Week 3"
+author: "Andrew"
+date: "September 13, 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+#Question 5.1 Using grubbs.test function to see if there are any outliers in the number of crimes per 100K people.
+```{r}
+library(outliers)
+library(ggplot2)
+library(dplyr)
+```
+
+```{r}
+##Reading the crime data files into R and saving as crime
+crime<- read.delim("uscrime.txt", sep = "\t", header = TRUE)
+```
+
+```{r}
+##inspecting the first five rows of crime, "Crime" is crimes per 100K and the data I will be working with.
+head(crime)
+```
+```{r}
+##Summary stats for the Crime column (number of crimes per 100K people) and standard deviation of dataset
+summary(crime$Crime)
+paste("The standard deviation of the crimes per 100K dataset is:",sd(crime$Crime))
+```
+#The above summary statistics of crimes per 100K people show that the median is 831 crimes per 100K people and the average is 905.1.
+
+```{r}
+##Histogram of crimes per 100K data 
+ggplot(crime, aes(Crime)) + geom_histogram() + ggtitle("Crimes Per 100K") + xlab("Crimes per 100K people")
+```
+
+#The histogram of the crimes per 100K dataset shows that there are potential outliers on the right tail of the distribution.  Overall, the distribution is right skewed. 
+
+```{r}
+##Boxplot of the crimes per 100K dataset
+boxplot(crime$Crime)
+```
+
+#The boxplot indicates that there are three potential outliers in the crimes per 100K dataset as the top values exceed the top whisker. The boxplot does not show any potential outliers to the low side of the distribution.  I will run a type = 10 grubbs.test since it appears there is only one tail of the distribution to examine for an outlier. 
+
+```{r}
+##Running grubs.test to see if there are any outliers, type = 10 to see if the dataset contains one outlier.  The p-value will also determine if the potential outliers are significant at the 95% level.
+grubbs.test(crime$Crime, type = 10 )
+```
+#The grubbs.test statistic G of 2.81287 is calculated taking the outlier's value and subtracting the mean of the data set, then dividing by the standard deviation. (1993-905.1)/386.763 = 2.81287.  Since the p-value of 0.07887 is greater than 0.05 we fail to reject the null hypothesis that there is no outlier in the data, i.e. the identified outlier of 1993 is not statistically significant.
+
+```{r}
+##Looking at the data filtered by crimes per 100K in the top quartile
+crime %>%
+  filter(Crime > 1057) %>%
+  arrange(desc(Crime))
+```
+#While the grubbs.test showed that the outlier was not statistically significant (p-value 0.07 > 0.05), the above data shows that the 1993 outlier came from a state with a population of only 300K.  A small number of crimes in that state could bias the crimes per 100K value higher and distort the overall dataset.  In the next step, I will remove the 1993 outlier and re-run the grubbs.test.
+```{r}
+##find which row has the outlier and 
+which(crime$Crime == 1993)
+```
+```{r}
+##remove row 26 from the dataset
+crime_trimmed<- crime[-26,]
+```
+
+```{r}
+##Viewing the new boxplot with the first identified outlier removed
+boxplot(crime_trimmed$Crime)
+```
+
+#Even after removing the first outlier of 1993, the new boxplot still shows three potential outliers.  
+```{r}
+##summary stats for trimmed data
+summary(crime_trimmed$Crime)
+```
+##By removing the 1993 outlier, the mean declined to 881.4 from 905 and the third quartile fell to 1039 from 1057.
+
+```{r}
+##Running grubbs.test on trimmed data
+grubbs.test(crime_trimmed$Crime, type = 10)
+```
+##When I re-ran the grubbs.test using the trimmed data set, it identified 1969 as an outlier and was significant with a p-value of 0.02848.
+```{r}
+##Filtering for the top quartile from the trimmed crime data and arranging in descending order
+crime_trimmed %>%
+  filter(Crime > 1039) %>%
+  arrange(desc(Crime))
+```
+#Despite the grubbs.test identifying 1969 value as a significant outlier in the crimes per 100K dataset, I believe that it should remain in the overall dataset.  When I examine the other variables in the dataset, the characteristics of the outlier state do no stand out being substantially different than the other rows.  Plus, the outlier comes from a large population state, 15,700,000 people, where a small amount of crimes are unlikely to skew the data higher like the first outlier of 1993 that was previously removed.
+
+
+
+
+
+
+

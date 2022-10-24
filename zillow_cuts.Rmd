@@ -1,0 +1,74 @@
+---
+title: "Zillow"
+author: "Andrew"
+date: "July 1, 2022"
+output: html_document
+---
+```{r}
+library(data.table)
+library(dplyr)
+library(tidyverse)
+library(zoo)
+library(xts)
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+metro<- read_csv("Metro_perc_listings_price_cut_uc_sfrcondo_sm_week.csv")
+```
+
+
+```{r}
+metro_melt<- melt(metro, id = c("RegionID", "SizeRank", "RegionName", "RegionType", "StateName"))
+```
+
+```{r}
+metro_us<- metro %>%
+  filter(RegionName == "United States")
+```
+
+```{r}
+setDT(metro_us)
+metro_us_melt<- melt(metro_us, id.vars = c("RegionID", "SizeRank", "RegionName", "RegionType", "StateName"), variable.name = "date", value.name = "percent")
+metro_us_melt$date<- as.Date(metro_us_melt$date)
+head(metro_us_melt)
+```
+
+```{r}
+keep_cols<- c("date", "percent")
+metro_us_melt<- as.data.frame(metro_us_melt)
+usa<- metro_us_melt[keep_cols]
+head(usa)
+```
+
+```{r}
+usa %>%
+  filter(is.na(percent))
+```
+```{r}
+usa$percent<- zoo::na.locf(usa$percent)
+```
+
+```{r}
+usa %>%
+  filter(is.na(percent))
+```
+
+
+```{r}
+usa_xts<- xts(usa[,-1], order.by = usa$date)
+colnames(usa_xts)[1]<- "percent"
+```
+
+```{r}
+usa_xts$percent<- as.numeric(usa_xts$percent)
+```
+
+
+```{r}
+cuts<- plot(usa_xts$percent, main = "Percent of Zillow Listings with Price Cuts", col = "#FFCC33", xlab = "Date", ylab = "Percent")
+```
+

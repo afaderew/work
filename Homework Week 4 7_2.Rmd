@@ -1,0 +1,201 @@
+---
+title: "Home Wrk. Week 4 7.2"
+author: "Andrew"
+date: "September 17, 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(xts)
+library(lubridate)
+library(smooth)
+library(ggplot2)
+library(reshape2)
+library(Rcpp)
+library(guf)
+library(dplyr)
+```
+
+
+```{r}
+##Reading the temperature data files into R and saving as temps
+temps<- read.delim("temps.txt", sep = "\t", header = TRUE)
+```
+
+```{r}
+##Viewing the first few rows of temps
+head(temps)
+```
+
+```{r}
+##Summary statistics of temps
+summary(temps)
+```
+```{r}
+##Adding daily average column to data
+temps_avg<- temps
+temps_avg$avg<- rowMeans(temps[,-1])
+```
+
+```{r}
+##Ploting average daily temperature over the 1996 to 2015 time period
+plot(temps_avg$avg, type = "l", xaxt = "n", xlab = "Date", ylab = "Temperature", main = "Average Daily Temp. 1996-2015", col = "red")
+axis(1, at = 1:123, labels = temps$DAY, las = 2, cex.axis = 0.75)
+```
+
+
+```{r}
+##Ploting yearly daily temperature over the 1996 to 2015 time period
+plot(temps_avg$X1996, type = "l", xaxt = "n", xlab = "Date", ylab = "Temperature", main = "Temperature by Year 1996-2015", col = "red")
+lines(temps_avg[,3], col = "blue")
+lines(temps_avg[,4], col = "green")
+lines(temps_avg[,5], col = "gray")
+lines(temps_avg[,6], col = "yellow")
+lines(temps_avg[,7], col = "purple")
+lines(temps_avg[,8], col = "orange")
+lines(temps_avg[,9], col = "black")
+lines(temps_avg[,10], col = "steelblue")
+lines(temps_avg[,11], col = "magenta")
+lines(temps_avg[,12], col = "cyan")
+lines(temps_avg[,13], col = "pink")
+lines(temps_avg[,14], col = "brown")
+lines(temps_avg[,15], col = "tan")
+lines(temps_avg[,16], col = "coral")
+lines(temps_avg[,17], col = "cadetblue")
+lines(temps_avg[,18], col = "blueviolet")
+lines(temps_avg[,19], col = "cornsilk")
+lines(temps_avg[,20], col = "darkgray")
+lines(temps_avg[,21], col = "burlywood")
+lines(temps_avg[,22], col = "midnightblue", lwd = 4)
+axis(1, at = 1:123, labels = temps$DAY, las = 2, cex.axis = 0.75)
+```
+
+```{r}
+##Melt dataset into long format
+temps_long<- melt(temps, id = "DAY")
+```
+
+```{r}
+##Manipulating the data labels
+temps_long$variable<- as.character(temps_long$variable)
+temps_long$variable<- right(temps_long$variable,4)
+colnames(temps_long)[2]<- "year"
+colnames(temps_long)[3]<- "temp"
+```
+
+```{r}
+##Merging the day column and year column together, converting to a date based object, relocating columns for easier reading
+temps_long$date<- as.Date(paste(temps_long$DAY,temps_long$year,sep = "-"), "%d-%b-%Y")
+temps_long<- temps_long %>% 
+  relocate(date, .before = DAY) %>%
+  relocate(temp, .after = date)
+```
+
+```{r}
+##Removing redundant columns
+temps_long_clean<- temps_long[,1:2]
+```
+
+
+```{r}
+##Convert temperature data into an xts file
+temps_xts<- xts(temps_long_clean$temp, order.by = temps_long_clean$date)
+colnames(temps_xts)[1]<- "temps"
+```
+
+
+```{r}
+##Convert temps_long into a time-series object (ts)
+temps_ts<- ts(temps_long_clean$temp, start = 1996, frequency = 123)
+head(temps_ts)
+tail(temps_ts)
+```
+
+```{r}
+##Running Holt Winters smoothing using es function
+smoothed<-es(temps_xts, model = "AAM")
+summary(smoothed)
+```
+
+```{r}
+##Extracting time index and applying it to the fitted values
+time_index<- index(temps_xts)
+fitted_xts<- xts(smoothed$fitted, order.by = time_index)
+```
+
+
+```{r}
+##Merge exponentially smoothed data with actual data
+merged_temps<- merge(temps_xts, fitted_xts)
+colnames(merged_temps)[2]<- "es_smoothed"
+```
+
+```{r}
+##Plotting exponentially smoothed data
+f_temps<- fortify(merged_temps)
+f_temps$yearly<- year(f_temps$Index)
+f_temps$monthly<- month(f_temps$Index)
+ggplot(f_temps, aes(monthly, es_smoothed)) + geom_line() + facet_wrap(~yearly)
+```
+
+```{r}
+ggplot(f_temps, aes(yearly, es_smoothed)) + geom_line()
+```
+```{r}
+##Running Holt Winters model on time series of temperature data, addititve seasonality
+hw<- HoltWinters(temps_ts)
+summary(hw)
+hw$alpha
+hw$beta
+hw$gamma
+hw$seasonal
+hw$SSE
+```
+
+
+```{r}
+plot(hw$fitted)
+```
+```{r}
+plot(temps_ts, type = 'l', main = "HW fitted values vs. actual")
+lines(hw$fitted[,1], col = "red", lty = 2)
+```
+```{r}
+plot(hw)
+```
+```{r}
+##Running Holt Winters model on time series of temperature data, multiplicative seasonality
+hw_m<- HoltWinters(temps_ts, seasonal = "multiplicative")
+summary(hw)
+hw$alpha
+hw$beta
+hw$gamma
+hw$seasonal
+hw$SSE
+```
+```{r}
+plot(hw_m$fitted)
+```
+```{r}
+plot(hw_m)
+```
+```{r}
+fitted_mtx<- matrix(hw$fitted[,1], nrow = 123)
+season_mtx<- matrix(hw$fitted[,4], nrow = 123)
+fitted_mtx_m<- matrix(hw_m$fitted[,1], nrow = 123)
+season_mtx_m<- matrix(hw_m$fitted[,4], nrow = 123)
+```
+
+
+```{r}
+##Exporting Holt Winters additive seasonality data to csv
+write.csv(fitted_mtx, "C:\\Users\\afaderewski\\Documents\\fitted_mtx.csv")
+write.csv(season_mtx, "C:\\Users\\afaderewski\\Documents\\seasonal.csv")
+write.csv(fitted_mtx_m, "C:\\Users\\afaderewski\\Documents\\fitted_mtx_m.csv")
+write.csv(season_mtx_m, "C:\\Users\\afaderewski\\Documents\\seasonal_m.csv")
+```
+

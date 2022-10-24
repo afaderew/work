@@ -1,0 +1,30 @@
+---
+title: "Homework_Week_9"
+author: "Andrew"
+date: "October 21, 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(FrF2)
+```
+
+##Question 12.2
+##To determine the value of 10 different yes/no features to the market value of a house (large yard, solar
+##roof, etc.), a real estate agent plans to survey 50 potential buyers, showing a fictitious house with
+##different combinations of features. To reduce the survey size, the agent wants to show just 16 fictitious
+##houses. Use R's FrF2 function (in the FrF2 package) to find a fractional factorial design for this
+##experiment: what set of features should each of the 16 fictitious houses have? Note: the output of FrF2 is
+##"1" (include) or "-1" (don't include) for each feature. 
+
+##Fractional factorial design (I assigned random factor names to the 10 features of the fictitious house)
+
+```{r}
+house<- FrF2(nfactors = 10, nruns = 16, factor.names = list(pool=c("yes","no"),bathroom=c("yes","no"),yard=c("big", "small"),garage=c("yes","no"),basement=c("yes","no"),kitchen=c("yes","no"),size=c("big","small"),plumbing=c("yes","no"),heat=c("yes","no"),ac=c("yes","no")))
+summary(house)
+```
+

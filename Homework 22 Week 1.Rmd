@@ -1,0 +1,183 @@
+---
+title: "Week 1"
+author: "Andrew"
+date: "August 25, 2021"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+##Loading the kernlab package
+library(kernlab)
+```
+
+```{r}
+##setting seed so results are reproducible
+set.seed(1)
+```
+
+
+```{r}
+##Reading the credit card text files into R and saving as data
+data<- read.delim("credit_card_data-headers.txt", sep = "\t", header = TRUE)
+data<- as.matrix(data)
+```
+
+#Week 1, Question 2.2.1
+```{r}
+##call ksvm. Vanilladot is a simple linear kernel
+model<- ksvm(data[,1:10], data[,11], type="C-svc", kernel = "vanilladot", C=1000, scaled = TRUE)
+model
+```
+#Training errors for different iterations of C: 2 = 0.136086, 5 = 0.136086, 10 = 0.136086, 100 = 0.136086, 1000 = 0.137615, 1000000 = 0.374618
+#For relatively small levels of C, the Training Error remained constant at 0.136086, but for a large value, such as 1,000,000 the error increased subtantially.  In general, the model, using vanilladot, achieved an accuracy around 86% as shown in the results below. As the value of C increases to very large numbers, the SVM model starts to act like a hard classifier. At lower levels of C, such as C=0.01 to C=10000, the number of support vectors ranges from around 189 to the high 200s, but the objective function value increases as C increases; a very high value of C such as 1,000,000 results in 427 support vectors and an objective function value of -46,182,140.
+
+```{r}
+##calculate a1...am
+a<- colSums(model@xmatrix[[1]] * model@coef[[1]])
+a
+```
+
+```{r}
+##calculate a0
+a0<- -model@b
+a0
+```
+
+```{r}
+##see what model predicts
+(pred<- predict(model,data[,1:10]))
+
+```
+
+```{r}
+##see what fraction of the model's predictions match the actual classification
+sum(pred == data[,11]) / nrow(data)
+```
+##For relatively small values of C (between 0.01 and 1000) the model achieves an accurarcy near 86%.
+
+
+#Week 1, Question 2.2.2
+```{r}
+##call ksvm, this time using besseldot 
+model2<- ksvm(data[,1:10], data[,11], type="C-svc", kernel = "besseldot", C=125, scaled = TRUE)
+model2
+```
+
+```{r}
+##calculate a1...am for besseldot model
+(a<- colSums(model2@xmatrix[[1]] * model2@coef[[1]]))
+
+```
+
+```{r}
+##calculate a0 for besseldot model
+(a0<- -model2@b)
+
+```
+
+```{r}
+##see what the besseldot model predicts
+(pred2<- predict(model2,data[,1:10]))
+
+```
+
+```{r}
+##see what fraction of the besseldot model predictions match the actual classification
+sum(pred2 == data[,11]) / nrow(data)
+```
+
+#The besseldot kernel returns a model with a lower training error of 0.071865 than the vanilladot kernel in the first question.  I changed the value of C in the besseldot model between 1 and up to 1,000,000, but the lowest training errors appeared around C = 125
+
+
+
+#Week 1, Question 2.2.3
+```{r}
+library(kknn)
+```
+
+```{r}
+##setting seed so results are reproducible
+set.seed(1)
+```
+
+```{r}
+##Convert credit card data into a dataframe to be used in the kknn model
+data_df<- as.data.frame(data)
+```
+
+
+```{r}
+##Create a training and test data set using 80% of the data for training and 20% for testing
+train_rows<- sample(1:nrow(data_df), 0.8 * nrow(data_df))
+train_data<- data_df[train_rows,]
+test_data<- data_df[-train_rows,]
+```
+
+```{r}
+##Running the kknn model on the data, using a single value of k
+k_model<- kknn(R1~., train_data, test_data, k=5, scale = TRUE)
+fit<- round(fitted(k_model),0)
+```
+
+```{r}
+##Create a confusion matrix to compare the fitted model values against actual values in the test set
+table(test_data$R1, fit)
+```
+```{r}
+##Checking the accuracy of the model using a single value of k
+(accu<- sum((fit == test_data$R1)/(nrow(test_data))))
+```
+
+```{r}
+##Create a vector of possible k values to see how the accuracy of the model changes with different k values
+k_value<- seq(1,100,1)
+```
+
+```{r}
+##Write function that enables me to test multiple values of 'k' 
+k_func<- function(k){
+  k2<- kknn(R1~., train_data, test_data, k=k, scale = TRUE)
+  return(round(fitted(k2),0))
+}
+```
+
+```{r}
+##Vectorize k_func which enables me to apply a vector of different k values
+v_kfunc<- Vectorize(k_func, vectorize.args =  "k"  )
+```
+
+```{r}
+##Applying the vectorized function, v_kfunc, to the multiple values of k and creating a vector of the test data that I want to compare the predictions to.
+pred_values<- v_kfunc(k_value)
+test_values<- test_data$R1
+```
+
+```{r}
+##Creating a data frame comparing each column of predictions to the actual result
+correct<- pred_values == test_values
+```
+
+```{r}
+##Calculate accuracy for each column, which represents different values of k
+(k_acc<- colMeans(correct))
+```
+##The model's accuracy fluctuates roughly between 83% and 86% at different values of k between 1 and 100.  Accuracy peaks between k = 13 and k = 18 before slightly declining throughout higher values of k.
+```{r}
+plot(k_acc, type = 'l', col = 'red', xlab = 'k value', ylab = 'Accuracy', main = 'Accuracy of kknn model with different k values')
+```
+
+
+
+
+
+
+
+
+
+

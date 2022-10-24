@@ -1,0 +1,256 @@
+---
+title: "Homework Week 5 8_2"
+author: "Andrew"
+date: "September 23, 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Question 8.2
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(DAAG)
+library(corrplot)
+library(broom)
+```
+
+```{r}
+##Reading the crime data files into R and saving as crime
+crime<- read.delim("uscrime.txt", sep = "\t", header = TRUE)
+```
+
+#Explanation of each variable:
+#Variable	 	Description
+#M		percentage of males aged 14-24 in total state population
+#So		indicator variable for a southern state
+#Ed		mean years of schooling of the population aged 25 years or over
+#Po1		per capita expenditure on police protection in 1960
+#Po2		per capita expenditure on police protection in 1959
+#LF		labour force participation rate of civilian urban males in the age-group 14-24
+#M.F		number of males per 100 females
+#Pop		state population in 1960 in hundred thousands
+#NW		percentage of nonwhites in the population
+#U1		unemployment rate of urban males 14-24
+#U2		unemployment rate of urban males 35-39
+#Wealth		wealth: median value of transferable assets or family income
+#Ineq		income inequality: percentage of families earning below half the median income
+#Prob		probability of imprisonment: ratio of number of commitments to number of offenses
+#Time		average time in months served by offenders in state prisons before their first release
+#Crime		crime rate: number of offenses per 100,000 population in 1960
+
+```{r}
+##inspecting the first five rows of crime, "Crime" is crimes per 100K and the data I will be working with.
+head(crime)
+```
+
+```{r}
+##Correlation matrix of the data against Crime only
+cor(crime$Crime,crime)
+```
+# The above correlation of each predictor variable against the crime rate shows the strongest and weakest relationships.  Per capita expenditure on police protection in 1959 and 1960 both have strong positive correlations to the crime rate; this could be a case of higher crime leading to more police spending. Population size, education level, labor force participation, and males per females are also substantial positve relationships.  The probability of imprisonment is a strong negative correlation.  Higher income inequality is also a significant negative relationship.
+```{r}
+##Simple correlatin matrix of entire dataset
+cor(crime)
+```
+
+
+
+```{r}
+##Correlation plot of each variable in crime dataset
+corrplot(cor(crime), method = 'square', type = 'lower')
+```
+
+```{r}
+##Plot of qqnorm of the Crime Rate distribution
+qqnorm(crime$Crime)
+```
+
+```{r}
+##Running linear regression on the entire dataset using all of the given predictors, printing summary stats and AIC and BIC
+lm_one<- lm(Crime ~ ., data = crime)
+summary(lm_one)
+AIC(lm_one)
+BIC(lm_one)
+```
+```{r}
+##Creating a dataframe of city data to predict the crime rate using the regression model
+predict_city<- matrix(c(14,0,10,12,15.5,0.64,94,150,1.1,0.12,3.6,3200,20.1,0.04,39), nrow = 1, ncol = 15)
+predict_city<- as.data.frame(predict_city)
+names<- colnames(crime[1:15])
+colnames(predict_city)<- names
+rownames(predict_city)[1]<- "city"
+```
+
+```{r}
+##Predicting the crime rate using the linear model on the given data from the homework
+predict(lm_one, predict_city)
+```
+
+
+#The predicted value of 155.43 from the first regression model, which includes all of the predictors, is in the lower left corner of the above qqnorm plot.  The value seems low in comparison to the distribution of crime rates in the dataset.
+```{r}
+##Creating augmented dataset with model output
+aug_1<- augment(lm_one)
+ggplot(aug_1, aes(Crime, .fitted)) + geom_point() + labs(x = "Actual Crime Rate", y = "Model Fitted Crime Rate") + geom_smooth(method = "lm") + ggtitle("Actual vs Fitted Crime Rate Using First Regression Model")
+```
+
+
+
+
+```{r}
+##Creating a regression model based on predictors with greater correlations
+lm_two<- lm(Crime ~ Ed + Po1 + Po2 + LF + M.F + Pop + U2 + Wealth + Ineq + Prob + Time,  data = crime)
+summary(lm_two)
+AIC(lm_two)
+BIC(lm_two)
+```
+#The second regression model based on predictors that have larger positive and negative correlations with the Crime Rate shows that the Adjusted R-square value declines to 0.65 from 0.70, but the F-statistic for the model increases to 8.999 from 8.429.  The AIC increases a bit above the first regression model, 650 to 655, but the BIC decreases to 679 from 681.
+
+```{r}
+predict(lm_two, predict_city)
+```
+#The predicted value of 748.22 seems more inline with the distribution of the crime rate data.
+```{r}
+##Augmenting the crime dataset to include the model's output
+aug_2<- augment(lm_two)
+ggplot(aug_2, aes(Crime, .fitted)) + geom_point() + labs(x = "Actual Crime Rate", y = "Model Fitted Crime Rate") + geom_smooth(method = "lm") + ggtitle("Actual vs Fitted Crime Rate Using Second Regression Model")
+```
+
+```{r}
+##Adding to new variables to the dataset
+##PoI = the percentage increase in per capita police spending from 1959 to 1960
+##WAT = the weighted average time incarcerated, calculated as the product of Prob and Time
+crime$PoI<- (crime$Po1/crime$Po2) -1
+crime$WAT<- crime$Prob * crime$Time
+```
+
+```{r}
+##First few rows of dataset with new predictors added
+head(crime)
+```
+```{r}
+##Correlation matrix of dataset with new predictors
+cor(crime)
+```
+```{r}
+##New corrplot of dataset with new predictors
+corrplot(cor(crime), method = 'square', type = 'lower')
+```
+
+#The correlation of the two new variables, PoI and WAT, are displayed above in the correlation matrix and corrplot.  Percentage increase in per capital police spending (PoI) shows a small positive correlation with the Crime Rate.  I had expected an increase in police spending to result in lower crime, but based on the correlation alone, this is not evident in the data.  The weighted average time incarcerated (WAT), however, shows a strong negative correlation (-0.407) with the Crime Rate; this relationship makes sense given if it is more likely that you will be incarcerated and especially for a longer time, there is a stronger deterrent to committ a crime, thus a lower crime rate.
+
+```{r}
+##Creating another regression model using the crime data with the new predictors
+lm_three<- lm(Crime ~ ., data = crime)
+summary(lm_three)
+AIC(lm_three)
+BIC(lm_three)
+```
+
+#The new regression model with the two additional predictors resulted in a higher R-squared value of 0.882 and an adjusted R-squared value of 0.812.  The f-statistic also improved to 12.7.  
+```{r}
+##Adding two new variables to prediction city
+predict_city$PoI<- (predict_city$Po1/predict_city$Po2) -1
+predict_city$WAT<- predict_city$Prob * predict_city$Time
+```
+
+```{r}
+##Predicting the crime rate with the two new variables and new model
+predict(lm_three, predict_city)
+```
+#The model actually predicts that the given city will have a negative crime rate of -1346! This doesn't make sense at all and is a good indicator that there is a problem with the model despite a high r-square and high f-statistic.  Most likely the model is overfitted to the data.
+
+```{r}
+##Augementing the data with model output
+aug_3<- augment(lm_three)
+ggplot(aug_3, aes(Crime, .fitted)) + geom_point() + labs(x = "Actual Crime Rate", y = "Model Fitted Crime Rate") + geom_smooth(method = "lm") + ggtitle("Actual vs Fitted Crime Rate Using Third Regression Model")
+```
+
+#In my next regression model, I will use the low p-value predictors from the original dataset (although the TA's did say this was an incorrect method to select variables). P-values < 0.05
+```{r}
+##Linear regression model from predictors with p-values < 0.05 from first regression output
+lm_four<- lm(Crime ~ M + Ed + Ineq + Prob, data = crime)
+summary(lm_four)
+AIC(lm_four)
+BIC(lm_four)
+```
+##The fourth regression model, using only variables with p-values < 0.05 from the original regression (lm_one) using all of the given data, has the lowest R-square and adjusted R-square of all the models I tested so far.  The F-stat is also the lowest as well at 3.75.
+
+```{r}
+##Predicting the Crime Rate using the fourth regression model
+predict(lm_four, predict_city)
+```
+#The model prediction of 897 seems reasonable, however, despite the relatively poor R-squared and F-statistics.
+```{r}
+##Creating dataset with model data
+aug_4<- augment(lm_four)
+ggplot(aug_4, aes(Crime, .fitted)) + geom_point() + labs(x = "Actual Crime Rate", y = "Model Fitted Crime Rate") + geom_smooth(method = "lm") + ggtitle("Actual vs Fitted Crime Rate Using Fourth Regression Model")
+```
+
+```{r}
+##Creating a fifth linear regression model using predictors with a correlation to the crime rate > +/- 0.40
+lm_five<- lm(Crime ~ Po1 + Pop + Wealth + Prob, data = crime)
+summary(lm_five)
+AIC(lm_five)
+BIC(lm_five)
+```
+
+```{r}
+##Predicting the Crime Rate using the fifth regression model
+predict(lm_five, predict_city)
+```
+#The predicted value of the crime rate of 1571 seems a bit high given the Crime Rate distribution.  Overall, the model's R-squared values, F-stat, AIC, and BIC seem comparable to the other models so far.
+
+```{r}
+##Creating dataset with model data
+aug_5<- augment(lm_five)
+ggplot(aug_5, aes(Crime, .fitted)) + geom_point() + labs(x = "Actual Crime Rate", y = "Model Fitted Crime Rate") + geom_smooth(method = "lm") + ggtitle("Actual vs Fitted Crime Rate Using Fifth Regression Model")
+```
+
+#Calculating SST 
+```{r}
+(sstot<- sum((crime$Crime - mean(crime$Crime))^2))
+```
+#I will now cross validate three models that appeared to predict a reasonable value for the crime rate.  I excluded model one and three as their predicted values were either too extreme or didn't make sense.
+
+```{r}
+##Cross validating the second linear regression model
+set.seed(123)
+lm_cv<- cv.lm(crime, lm_two, m = 3)
+```
+```{r}
+##Calcultating the R-squared value for the CV regression model from lm_two
+attributes(lm_cv)
+ssres_cv<- attr(lm_cv, "ms")*nrow(crime)
+1 - ssres_cv/sstot
+```
+```{r}
+##Cross validating the fourth linear regression model
+set.seed(123)
+lm_cv_2<- cv.lm(crime, lm_four, m = 3)
+```
+
+```{r}
+##Calcultating the R-squared value for the CV regression model from lm_four
+attributes(lm_cv_2)
+ssres_cv_2<- attr(lm_cv_2, "ms")*nrow(crime)
+1 - ssres_cv_2/sstot
+```
+
+```{r}
+##Cross validating the fifth linear regression model
+set.seed(123)
+lm_cv_3<- cv.lm(crime, lm_five, m = 3)
+```
+
+```{r}
+##Calcultating the R-squared value for the CV regression model from lm_five
+attributes(lm_cv_3)
+ssres_cv_3<- attr(lm_cv_3, "ms")*nrow(crime)
+1 - ssres_cv_3/sstot
+```

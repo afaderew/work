@@ -1,0 +1,205 @@
+---
+title: "Homework Week 8"
+author: "Andrew"
+date: "October 18, 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+##Reading the crime data files into R and saving as crime
+crime<- read.delim("uscrime.txt", sep = "\t", header = TRUE)
+head(crime)
+```
+##Part one, building a stepwise regression model
+
+```{r}
+##Building a stepwise regression model
+int_only<- lm(Crime ~ 1, data = crime)
+all_model<- lm(Crime ~ ., data = crime)
+```
+
+```{r}
+##Forward step model
+fwd_step<- step(int_only, direction = "forward", scope = formula(all_model), trace = 0)
+fwd_step$anova
+```
+```{r}
+##Backward step model
+bwd_step<- step(all_model, direction = "backward", trace = 0)
+bwd_step$anova
+```
+```{r}
+##Both directions step model, starting with all predictors
+both_model1<- step(all_model, scope = list(lower = formula(int_only),upper = formula(all_model)), direction = "both", trace = 0)
+both_model1$anova
+```
+
+```{r}
+##Both directions step model, starting with no predictors
+both_model2<- step(int_only, scope = list(lower = formula(int_only),upper = formula(all_model)), direction = "both", trace = 0)
+both_model2$anova
+```
+
+```{r}
+##Cross validating final stepwise regression models
+library(DAAG)
+cv_one<- cv.lm(crime, both_model1, m = 4)
+cv_two<- cv.lm(crime, both_model2, m = 4)
+```
+
+```{r}
+(sstot<- sum((crime$Crime - mean(crime$Crime))^2))
+```
+
+```{r}
+##Calcultating the R-squared value for the Cross validated stepwise regression models starting with all predictors
+attributes(cv_one)
+ssres_cv<- attr(cv_one, "ms")*nrow(crime)
+1 - ssres_cv/sstot
+```
+
+```{r}
+##Calcultating the R-squared value for the Cross validated stepwise regression models starting with no predictors
+attributes(cv_two)
+ssres_cv<- attr(cv_two, "ms")*nrow(crime)
+1 - ssres_cv/sstot
+```
+
+```{r}
+##Predictors for each stepwise model (both_model1 = start with all predictors; both_model2 = start with no predictors)
+both_model1$call
+both_model2$call
+```
+```{r}
+##Coefficients for each model
+both_model1$coefficients
+both_model2$coefficients
+```
+
+
+##After cross validating the stepwise regression models (both_model1 & both_model2) which started with all predictors or no predictors, I calculated the r-squared values.  The stepwise regression starting with no predictors generated a higher r-squared value of 0.671 versus an r-squared value of 0.61 for the stepwise regression starting with all of the predictors.  The higher r-squared value for the model starting with no predictors is a bit surprising given the very small larger AIC of 504.7859 versus an AIC of 503.9349 for the stepwise regression model starting with all predictors.  Both stepwise models use mostly the same predictors, albeit with different coefficients, but the stepwise model starting with no predictors adds U1, the unemployment rate for all males 14-24 years old.  
+
+
+
+
+
+##Part two, building a Lasso Model
+
+```{r}
+##Loading glmnet package
+library(glmnet)
+```
+```{r}
+##Converting the crime dataframe to a matrix
+crime_mtx<- as.matrix(crime)
+head(crime_mtx)
+```
+```{r}
+##Creating separate x and y matrices. x = predictors, y = response
+x<- crime_mtx[,1:15]
+y<- crime_mtx[,16]
+```
+
+
+```{r}
+##Building a lasso model
+set.seed(123)
+(lasso<- cv.glmnet(x,y, alpha = 1, nfolds = 8, nlambda = 20, type.measure = "mse", family = "gaussian", standardize = TRUE))
+```
+
+```{r}
+##Plot of lasso model MSE for each lambda
+plot(lasso)
+```
+
+```{r}
+##Lambda value that produces the smalles MSE for lasso regression
+lasso$lambda.min
+```
+```{r}
+##Matrix of model lambda values, MSE, and number of non-zero coefficients for lasso regression
+cbind(lasso$lambda,lasso$cvm,lasso$nzero)
+```
+
+```{r}
+##Coefficients for lasso model
+coef(lasso, s = lasso$lambda.min)
+```
+
+```{r}
+lasso$glmnet.fit
+```
+
+##Elastic Net model
+
+```{r}
+##Creating a vector of alphas to test in the elastic net model
+alphas<- seq(0.02,1,0.02)
+```
+
+
+```{r}
+##Setting seed and foldid to ensure CV folds are consistent with each alpha
+set.seed(123)
+foldid<- sample(1:10, size = length(y), replace = TRUE)
+```
+
+```{r}
+##Creating a function to vectorize the alpha argument in glmnet
+elnet_func<- function(n){
+  el_net<- cv.glmnet(x,y, alpha = n, nfolds = 8, nlambda = 20, foldid = foldid, type.measure = "mse", family = "gaussian", standardize = TRUE)
+  return(el_net)
+}
+vector_elnet<- Vectorize(elnet_func, vectorize.args = "n")
+```
+
+```{r}
+##Passing the vector of alphas through the vectorized elastic net function
+set.seed(123)
+elast_net<- vector_elnet(alphas)
+```
+
+```{r}
+##Getting the minimum lambda value that corresponds to the lowest MSE at the given alpha
+min(unlist(elast_net[10,]))
+```
+```{r}
+##Obtaining index for the minimum lambda value that corresponds to the lowest MSE at the given alpha
+number<- which(elast_net[10,] == min(unlist(elast_net[10,])))
+paste("The alpha with the lowest MSE using the elastic net model is",alphas[number])
+```
+
+```{r}
+##Specific elastic net model with alpha = 0.9 (value that corresponds to the lowest MSE)
+set.seed(123)
+elnet<- cv.glmnet(x,y, alpha = 0.9, nfolds = 8, nlambda = 20, foldid = foldid, type.measure = "mse", family = "gaussian", standardize = TRUE)
+```
+
+
+```{r}
+##Plot of elasitc net model MSE for each lambda
+plot(elnet)
+```
+```{r}
+##Lambda value that produces the smalles MSE
+elnet$lambda.min
+```
+
+```{r}
+##Matrix of model lambda values, MSE, and number of non-zero coefficients
+cbind(elnet$lambda,elnet$cvm,elnet$nzero)
+```
+
+```{r}
+elnet$glmnet.fit
+```
+```{r}
+##Coefficients for elastic net model
+coef(elnet, s = elnet$lambda.min)
+```
+
+##After creating both a Lasso model and an Elastic Net model, I compared the overall performance for each.  The lasso model with a lambda value of 14.35 minimized the MSE to 67,493. For the elastic net model, I pass a vector of potential alphas ranging from 0.02 to 1.0 in increments of 0.02.  The elastic net model with an alpha of 0.90 resulted in the lowest MSE of 64,414 and slightly outperformed the lasso model.
