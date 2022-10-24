@@ -1,0 +1,872 @@
+---
+title: "BLS"
+author: "Andrew"
+date: "September 15, 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+##load packages
+library(devtools)
+#library(blsAPI)
+library(rjson)
+library(dplyr)
+library(tidyr)
+library(lubridate)
+library(ggplot2)
+library(tidyverse)
+library(zoo)
+library(quantmod)
+library(roll)
+library(broom)
+library(astsa)
+library(forecast)
+library(Rblpapi)
+library(TTR)
+con<- blpConnect()
+```
+
+```{r}
+##Retrieve Bloomberg data
+start_date<- as.Date("1994-01-03")
+opt<- c("periodicitySelection" = "MONTHLY")
+trade_day<- "FALSE"
+crb_index<- bdh(securities = "CRY Index", 
+           fields = "PX_LAST", 
+           start.date = start_date,include.non.trading.days = "FALSE", options = opt)
+gdp_fcst<- bdh(securities = "ECGDUS 22 Index", 
+           fields = "PX_LAST", 
+           start.date = start_date,include.non.trading.days = trade_day)
+pc_fcst<- bdh(securities = "ECCCUS 22 Index", 
+           fields = "PX_LAST", 
+           start.date = start_date,include.non.trading.days = trade_day)
+recess<- bdh(securities = "ECRPUS 1Y Index", 
+           fields = "PX_LAST", 
+           start.date = start_date,include.non.trading.days = trade_day)
+crb_xts<- xts(crb_index[,-1], order.by = crb_index$date)
+gdp_xts<- xts(gdp_fcst$PX_LAST, order.by = gdp_fcst$date)
+pce_xts<- xts(pc_fcst$PX_LAST, order.by = pc_fcst$date)
+rec_xts<- xts(recess$PX_LAST, order.by = recess$date)
+colnames(crb_xts)<- "price"
+crb_xts$month_change<- crb_xts$price - stats::lag(crb_xts$price,1)
+crb_xts$month_percent<- ((crb_xts$price/stats::lag(crb_xts$price,1))-1)*100
+crb_xts$three_month_percent<- ((crb_xts$price/stats::lag(crb_xts$price,3))-1)*100
+crb_xts$six_month_percent<- ((crb_xts$price/stats::lag(crb_xts$price,6))-1)*100
+crb_xts$one_year_percent<- ((crb_xts$price/stats::lag(crb_xts$price,12))-1)*100
+```
+
+
+```{r}
+##Retrieve FRED data
+oer<- getSymbols("CUSR0000SEHC", src = "FRED", auto.assign = FALSE)
+rv<- getSymbols("RRVRUSQ156N", src = "FRED", auto.assign = FALSE)
+mcs<- getSymbols("CUSR0000SAM2", src = "FRED", auto.assign = FALSE)
+unrate<- getSymbols("UNRATE", src = "FRED", auto.assign = FALSE)
+fedbal<- getSymbols("WALCL", src = "FRED", auto.assign = FALSE)
+lt_uer<- getSymbols("LNS13025703", src = "FRED", auto.assign = FALSE)
+hpi<- getSymbols("CSUSHPINSA", src = "FRED", auto.assign = FALSE)
+m2<- getSymbols("M2", src = "FRED", auto.assign = FALSE)
+cpi_core<- getSymbols("CPILFENS", src = "FRED", auto.assign = FALSE)
+twd<- getSymbols("DTWEXBGS", src = "FRED", auto.assign = FALSE)
+u6rate<- getSymbols("U6RATE", src = "FRED", auto.assign = FALSE)
+gdp<- getSymbols("GDPC1", src = "FRED", auto.assign = FALSE)
+deficit<- getSymbols("FYFSD", src = "FRED", auto.assign = FALSE)
+cpi_core_uni<- getSymbols("CPILFENS", src = "FRED", auto.assign = FALSE)
+```
+
+
+```{r}
+gdp_xts<- xts(gdp_fcst$PX_LAST, order.by = gdp_fcst$date)
+```
+
+
+```{r}
+##Rename Columns in FRED data
+colnames(oer)<- "oer_index"
+colnames(mcs)<- "med_care_svc"
+colnames(fedbal)<- "Fed_Bal"
+colnames(lt_uer)<- "lt_uer"
+colnames(hpi)<- "hpi"
+colnames(cpi_core)<- "core_cpi"
+colnames(twd)<- "twd_index"
+colnames(deficit)<- "fiscal_deficit"
+```
+
+```{r}
+##Add mutations to OER data
+oer$oer_yoy_chg<- diff(oer$oer_index,12)
+oer$oer_mom_chg<- diff(oer$oer_index,1)
+oer$oer_yoy_pct<- (oer$oer_yoy_chg/stats::lag(oer$oer_index,12)) *100
+oer$oer_mom_pct<- (oer$oer_mom_chg/stats::lag(oer$oer_index,1)) *100
+```
+
+```{r}
+##Retrieve Medical Care Services Data and add mutations
+mcs$yoy_mcs_chg<- diff(mcs$med_care_svc,12)
+mcs$mom_mcs_chg<- diff(mcs$med_care_svc,1)
+mcs$yoy_mcs_pct<- (mcs$yoy_mcs_chg/stats::lag(mcs$med_care_svc,12)) * 100
+mcs$mom_mcs_pct<- (mcs$mom_mcs_chg/stats::lag(mcs$med_care_svc,1)) * 100
+```
+
+```{r}
+##Add mutations to other data sets
+hpi$yoy_hpi<- ((hpi$hpi/stats::lag(hpi$hpi,12)) - 1) * 100
+m2$yoy_m2<- ((m2$M2/stats::lag(m2$M2,12))-1) * 100
+cpi_core$yoy_cpi<- ((cpi_core$core_cpi/stats::lag(cpi_core$core_cpi,12))-1) * 100
+cpi_core$mom_cpi<- ((cpi_core$core_cpi/stats::lag(cpi_core$core_cpi,1))-1) * 100
+```
+
+```{r}
+##Merged several data sets into one xts dataframe
+merged<- merge(oer,rv,mcs,unrate,lt_uer,hpi)
+```
+
+```{r}
+##Rename FRED Vacancy identifier to Vacancy, carry last observation forward
+colnames(merged)[6]<- "vacancy"
+merged$vacancy<- na.locf(merged$vacancy)
+```
+
+```{r}
+deficit_1990<- deficit["1990/"]
+```
+
+```{r}
+plot(merged$vacancy, main = "Vacancy Rate and Unemployment", col = "#FFCC33", ylab = "Rate", xlab = "Date", lwd = 2, ylim = c(2,15))
+lines(merged$UNRATE, col = "#3366cc", lwd = 2)
+addLegend(legend.loc = "topleft", legend.names = c("Vacancy Rate", "Unemployment Rate"),  ncol = 1,  fill = c("#FFCC33","#3366cc"))
+```
+
+```{r}
+plot(merged$oer_yoy_pct["1988-01-01/"], main = "YoY OER vs HPI", col = "#FFCC33", ylab = "Rate", xlab = "Date", lwd = 2, ylim = c(-13,25))
+lines(merged$yoy_hpi, col = "#3366cc", lwd = 2)
+addLegend(legend.loc = "topleft", legend.names = c("OER", "HPI"),  ncol = 1,  fill = c("#FFCC33","#3366cc"))
+```
+
+```{r}
+plot(merged$oer_yoy_pct["1988-01-01/"], main = "YoY OER vs Vacancy Rate", col = "#FFCC33", ylab = "Rate", xlab = "Date", lwd = 2, ylim = c(-13,25))
+lines(merged$vacancy, col = "#3366cc", lwd = 2)
+addLegend(legend.loc = "topleft", legend.names = c("OER", "Vacancy Rate"),  ncol = 1,  fill = c("#FFCC33","#3366cc"))
+```
+
+```{r}
+##Several plots of data
+oer_plot<- plot.xts(merged["1985/","oer_yoy_pct"], main = "YoY Percent Change in OER", col = "red")
+vac_plot<- plot.xts(merged["1985/","vacancy"], main = "Rental Vacancy Rate", col = "red")
+mcs_plot<- plot.xts(merged["1985/","yoy_mcs_pct"], main = "YoY Percent Change in Medical Care Services", col = "red")
+uer_plot<- plot.xts(merged["1985/","UNRATE"], main = "U-3 Unemployment Rate", col = "red")
+frb<- plot.xts(fedbal["2000/","Fed_Bal"], main = "Growth of the Fed's Balance Sheet", col = "red", options(scipen = 9999))
+hpi_plot<- plot.xts(merged["2000/","yoy_hpi"], main = "Home Price Index", col = "red")
+lt_uer_plot<- plot.xts(merged["2000/","lt_uer"], main = "% of Total Unemployed > 27 weeks", col = "red")
+core_plot<- plot.xts(cpi_core["2000/","yoy_cpi"], main = "Core CPI YoY Change", col = "red")
+twd_plot<- plot.xts(twd["2000/","twd_index"], main = "Trade Weighted Dollar Index", col = "red")
+u6_plot<- plot.xts(u6rate["1985/","U6RATE"], main = "U-6 Unemployment Rate", col = "red")
+gdp_plot<- plot.xts(gdp["1985/","GDPC1"], main = "US Real GDP", col = "red")
+```
+
+```{r}
+gdp_df<- data.frame(date = index(gdp), coredata(gdp))
+deficit_df<- data.frame(date=index(deficit_1990), coredata(deficit_1990))
+```
+
+```{r}
+#Convert core_cpi xts object to a dataframe
+core_df<- fortify(cpi_core["2015/"])
+```
+
+```{r}
+legend_colors<- c("YoY" = "#FFCC33", "MoM" = "3366CC")
+#Create combination plot of monthly core cpi changes and yearly changes.  Scale MoM data by 5X and then add secondary y-scale divided by 5
+ggplot(core_df) + geom_bar(aes(Index,5*mom_cpi), stat = "identity", fill = "#FFCC33") + geom_line(aes(Index, yoy_cpi), stat = "identity", color = "#3366cc", size = 1) + labs(title = "Changes in Core CPI Inflation", x = "Date", y = "YoY Change") + scale_y_continuous(sec.axis = sec_axis(~./5, name = "MoM Change")) + theme_bw() + scale_color_manual(values = legend_colors)
+```
+
+
+```{r}
+(gdp_gg<- ggplot(gdp_df, aes(x=date, y= GDPC1, )) + geom_line() + geom_smooth(method = "loess"))
+(deficit_gg<- ggplot(deficit_df, aes(x=date, y = fiscal_deficit, fill=fiscal_deficit)) + geom_bar(stat="identity", position = position_dodge(width = 1)) + ggtitle("Annual Fiscal Surplus/Deficit") + labs(y="Amount in $"))
+```
+
+
+```{r}
+plot.zoo(merged["2000/2022",c("oer_yoy_pct", "vacancy")], main = "YoY Percent Change in OER (red) vs Vacancy Rate (blue)", col = c("red", "blue") , plot.type = "single", ylab = "Percent")
+```
+
+```{r}
+oer_df<- as.data.frame(merged)
+oer_df<- oer_df %>%
+  mutate(vac_chg = vacancy - lag(vacancy,6))
+oer_df$UNRATE_MA<- rollmeanr(oer_df$UNRATE,3, fill = "extend")
+```
+
+```{r}
+oer_df$year<- format(index(merged),"%Y")
+```
+
+
+```{r}
+ggplot(oer_df, aes(lag(vac_chg,12), oer_yoy_pct)) + geom_point(aes(color=year))
+ggplot(oer_df, aes(vacancy, oer_yoy_pct)) + geom_point(aes(color=year)) + geom_smooth(method = "lm") + ggtitle("Rental Vacancy Rate vs YoY Change in OER") + labs(x= "Rental Vacancy Rate",y="Percent Change OER")
+ggplot(oer_df, aes(UNRATE_MA, oer_yoy_pct)) + geom_point(aes(color=year)) + geom_smooth(method = "lm") + ggtitle("3M Moving Average Unemployment Rate vs YoY Change in OER") + labs(x= "3M Moving Avg UER",y="Percent Change OER")
+rent_oer<- ggplot(oer_df, aes(lag(vacancy,6), oer_yoy_pct)) + geom_point(aes(color=year)) + geom_smooth(method = "lm") + ggtitle("Rental Vacancy Rate lagged 6-months vs YoY Change in OER") + labs(x= "Rental Vacancy Rate",y="Percent Change OER")
+uer_oer<- ggplot(oer_df, aes(lag(UNRATE_MA,6), oer_yoy_pct)) + geom_point(aes(color=year)) + geom_smooth(method = "lm") + ggtitle("3M Moving Average Unemployment Rate lagged 6-months vs YoY Change in OER") + labs(x= "3M Moving Avg UER",y="Percent Change OER") + coord_cartesian(xlim = c(3.5,11))
+lt_uer_oer<- ggplot(oer_df, aes(lt_uer,vacancy)) + geom_point(aes(color=year)) + geom_smooth(method = "lm") + ggtitle("Long-term Unemployed vs Rental Vacancy Rate") + labs(y= "Rental Vacancy Rate",x="Long-term UER")
+ggplot(oer_df, aes(yoy_hpi, oer_yoy_pct)) + geom_point(aes(color=year)) + geom_smooth(method = "lm") + ggtitle("S&P C/S HPI YoY vs YoY Change in OER") + labs(x= "YoY Change in HPI",y="Percent Change OER")
+hpi_oer<- ggplot(oer_df, aes(lag(yoy_hpi,6), oer_yoy_pct)) + geom_point(aes(color=year)) + geom_smooth(method = "lm") + ggtitle("S&P C/S HPI YoY lagged 6-months vs YoY Change in OER") + labs(x= "YoY Change in HPI",y="Percent Change OER")
+```
+
+```{r}
+weights<- data.frame(c(0.855,2.774,0.221,5.094,24.218,7.845,7.315), nrow = 7, byrow = TRUE)
+items<- c("Lodging Away from Home", "Apparel", "Appliances", "Transportation Services", "OER", "Rent of Primary Residence", "Medical Care Services")
+rownames(weights)<- items
+colnames(weights)<- "Percent_of_CPI"
+cpi_basket<- rbind(items,weights)
+```
+
+
+```{r}
+cpi_baskets<- data.frame(
+  Items = c("Lodging_Away_from_Home", "Apparel", "Appliances", "Transportation_Services", "OER", "Rent_of_Primary Residence", "Medical_Care_Services"),
+  Weights=c(0.855,2.774,0.221,5.094,24.218,7.845,7.315))
+```
+
+```{r}
+cpi_plot<- ggplot(cpi_baskets, aes(x = Items, y = Weights)) + geom_bar(stat = "identity", fill = "red") + coord_flip() + ggtitle("Significant Components of the CPI Basket")
+```
+
+```{r}
+##plot of OER
+plot.zoo(oer$oer_yoy_pct["1990/"], main = "YoY % Change in OER", col = "red", ylab = "Percent Change", xlab = "Date")
+abline(h = mean(oer$oer_yoy_pct["2017/"], na.rm = TRUE), col = "blue", lwd = 1, lty = 2)
+
+plot.xts(oer$oer_mom_pct["1990/"], main = "MoM % Change in OER", col = "red", ylab = "Percent Change", xlab = "Date")
+
+plot.xts(oer$oer_index["1990/"], main = "OER Price Index", col = "red", ylab = "Index 1982 = 100", xlab = "Date")
+```
+
+```{r}
+##plot of OER
+plot.zoo(oer$oer_yoy_pct["1990/"], main = "YoY % Change in OER", col = "#FFCC33", ylab = "Percent Change", xlab = "Date")
+abline(h = mean(oer$oer_yoy_pct["2017/"], na.rm = TRUE), col = "#3366CC", lwd = 1, lty = 2)
+
+plot.xts(oer$oer_mom_pct["1990/"], main = "MoM % Change in OER", col = "#FFCC33", ylab = "Percent Change", xlab = "Date")
+
+plot.xts(oer$oer_index["1990/"], main = "OER Price Index", col = "#FFCC33", ylab = "Index 1982 = 100", xlab = "Date")
+```
+
+
+```{r}
+##plot of Medical Care Services
+plot.zoo(mcs$yoy_mcs_pct["2010/"], main = "YoY % Change in Medical Care Services", col = "red", ylab = "Percent Change", xlab = "Date")
+abline(h = mean(mcs$yoy_mcs_pct["2017/"], na.rm = TRUE), col = "blue", lwd = 1, lty = 2)
+
+plot.xts(mcs$mom_mcs_pct["2010/"], main = "MoM % Change in Medical Care Services", col = "red", ylab = "Percent Change", xlab = "Date")
+```
+
+
+```{r}
+##data retrieval of Rent of Primary Residence
+rpr<- getSymbols("CUSR0000SEHA", src = "FRED", auto.assign = FALSE)
+rpr$yoy_chg<- diff(rpr$CUSR0000SEHA,12)
+rpr$yoy_pct_chg<- (rpr$yoy_chg/stats::lag(rpr$CUSR0000SEHA,12)) * 100
+```
+
+```{r}
+##plot of Rent of Primary Residence
+plot.zoo(rpr$yoy_pct_chg["2015/"], main = "YoY % Change in Rent of Primary Residence", col = "red", ylab = "Percent Change", xlab = "Date")
+abline(h = mean(rpr$yoy_pct_chg["2015/"], na.rm = TRUE), col = "blue", lwd = 1, lty = 2)
+```
+
+
+```{r}
+##data of Food At Home
+fah<- getSymbols("CUSR0000SAF11", src = "FRED", auto.assign = FALSE)
+fah$yoy_chg<- diff(fah$CUSR0000SAF11,12)
+fah$mom_chg<- diff(fah$CUSR0000SAF11,1)
+fah$yoy_pct_chg<- (fah$yoy_chg/stats::lag(fah$CUSR0000SAF11,12)) * 100
+fah$mom_pct_chg<- (fah$mom_chg/stats::lag(fah$CUSR0000SAF11,1)) * 100
+```
+
+```{r}
+##plot of Food at Home
+plot.zoo(fah$yoy_pct_chg["2015/"], main = "YoY % Change in Food at Home", col = "#FFCC33", ylab = "Percent Change", xlab = "Date")
+abline(h = mean(fah$yoy_pct_chg["2015/"], na.rm = TRUE), col = "blue", lwd = 1, lty = 2)
+
+plot.xts(fah$mom_pct_chg["2015/"], main = "MoM % Change in CPI Food at Home", col = "#FFCC33", ylab = "Percent Change", xlab = "Date")
+```
+
+```{r}
+##data of Food Away from Home
+fafh<- getSymbols("CUSR0000SEFV", src = "FRED", auto.assign = FALSE)
+fafh$yoy_chg<- diff(fafh$CUSR0000SEFV,12)
+fafh$mom_chg<- diff(fafh$CUSR0000SEFV,1)
+fafh$yoy_pct_chg<- (fafh$yoy_chg/stats::lag(fafh$CUSR0000SEFV,12)) * 100
+fafh$mom_pct_chg<- (fafh$mom_chg/stats::lag(fafh$CUSR0000SEFV,1)) * 100
+```
+
+```{r}
+##plot of Food Away from Home
+plot.zoo(fafh$yoy_pct_chg["2015/"], main = "YoY % Change in Food Away from Home", col = "red", ylab = "Percent Change", xlab = "Date")
+abline(h = mean(fafh$yoy_pct_chg["2015/"], na.rm = TRUE), col = "blue", lwd = 1, lty = 2)
+
+plot.xts(fafh$mom_pct_chg["2015/"], main = "MoM % Change in CPI Food Away from Home", col = "red", ylab = "Percent Change", xlab = "Date")
+
+plot.xts(fafh$CUSR0000SEFV["2015/"], main = "Food Away from Home Price Index", col = "red", ylab = "Index Level", xlab = "Date")
+```
+
+```{r}
+##data of CPI Energy
+energy<- getSymbols("CPIENGSL", src = "FRED", auto.assign = FALSE)
+energy$yoy_chg<- diff(energy$CPIENGSL,12)
+energy$yoy_pct_chg<- (energy$yoy_chg/stats::lag(energy$CPIENGSL,12)) * 100
+```
+
+```{r}
+##plot of CPI Energy
+plot.zoo(energy$yoy_pct_chg["1970/"], main = "YoY % Change in CPI Energy", col = "#FFCC33", ylab = "Percent Change", xlab = "Date")
+abline(h = mean(energy$yoy_pct_chg["2015/"], na.rm = TRUE), col = "blue", lwd = 1, lty = 2)
+```
+
+```{r}
+##data of CPI Apparel
+app<- getSymbols("CPIAPPSL", src = "FRED", auto.assign = FALSE)
+app$yoy_chg<- diff(app$CPIAPPSL,12)
+app$yoy_pct_chg<- (app$yoy_chg/stats::lag(app$CPIAPPSL,12)) * 100
+```
+
+```{r}
+##plot of CPI Apparel
+plot.zoo(app$yoy_pct_chg["2015/"], main = "YoY % Change in CPI Apparel", col = "red", ylab = "Percent Change", xlab = "Date")
+abline(h = mean(app$yoy_pct_chg["2015/"], na.rm = TRUE), col = "blue", lwd = 1, lty = 2)
+```
+
+```{r}
+##data of CPI New Vehicles
+nv<- getSymbols("CUSR0000SETA01", src = "FRED", auto.assign = FALSE)
+nv$yoy_chg<- diff(nv$CUSR0000SETA01,12)
+nv$mom_chg<- diff(nv$CUSR0000SETA01,1)
+nv$yoy_pct_chg<- (nv$yoy_chg/stats::lag(nv$CUSR0000SETA01,12)) * 100
+nv$mom_pct_chg<- (nv$mom_chg/stats::lag(nv$CUSR0000SETA01,1)) * 100
+```
+
+```{r}
+##plot of CPI New Vehicles
+plot.zoo(nv$yoy_pct_chg["1980/"], main = "YoY % Change in CPI New Vehicles", col = "#FFCC33", ylab = "Percent Change", xlab = "Date")
+abline(h = mean(nv$yoy_pct_chg["2015/"], na.rm = TRUE), col = "blue", lwd = 1, lty = 2)
+
+plot.xts(nv$mom_pct_chg["1980/"], main = "MoM % Change in CPI New Vehicles", col = "#FFCC33", ylab = "Percent Change", xlab = "Date")
+```
+
+```{r}
+##data of CPI Used Vehicles
+used<- getSymbols("CUSR0000SETA02", src = "FRED", auto.assign = FALSE)
+used$yoy_chg<- diff(used$CUSR0000SETA02,12)
+used$mom_chg<- diff(used$CUSR0000SETA02,1)
+used$yoy_pct_chg<- (used$yoy_chg/stats::lag(used$CUSR0000SETA02,12)) * 100
+used$mom_pct_chg<- (used$mom_chg/stats::lag(used$CUSR0000SETA02,1)) * 100
+```
+
+```{r}
+##plot of CPI Used Vehicles
+plot.zoo(used$yoy_pct_chg["1970/"], main = "YoY % Change in CPI Used Vehicles", col = "#FFCC33", ylab = "Percent Change", xlab = "Date")
+abline(h = mean(used$yoy_pct_chg["2015/"], na.rm = TRUE), col = "blue", lwd = 1, lty = 2)
+
+plot.xts(used$mom_pct_chg["2017/"], main = "MoM % Change in CPI Used Vehicles", col = "#FFCC33", ylab = "Percent Change", xlab = "Date", ylim = c(-6,11))
+```
+
+```{r}
+plot(used$yoy_pct_chg["1980/"], main = "YoY % Change in CPI Used & New Vehicles", col = "#FFCC33", ylab = "Percent Change", xlab = "Date")
+lines(nv$yoy_pct_chg["1980/"],  col = "#3366cc", ylab = "Percent Change", xlab = "Date")
+addLegend(legend.loc = "topleft", legend.names = c("Used Vehicles", "New Vehicles"),  ncol = 1,  fill = c("#FFCC33","#3366cc"))
+```
+
+
+```{r}
+##data of Medical Care Commodities
+mcc<- getSymbols("CUSR0000SAM1", src = "FRED", auto.assign = FALSE)
+mcc$yoy_chg<- diff(mcc$CUSR0000SAM1,12)
+mcc$yoy_pct_chg<- (mcc$yoy_chg/stats::lag(mcc$CUSR0000SAM1,12)) * 100
+```
+
+```{r}
+##plot of Medical Care Commodities
+plot.zoo(mcc$yoy_pct_chg["2015/"], main = "YoY % Change in CPI Medical Care Commodities", col = "red", ylab = "Percent Change", xlab = "Date")
+abline(h = mean(mcc$yoy_pct_chg["2015/"], na.rm = TRUE), col = "blue", lwd = 1, lty = 2)
+```
+
+```{r}
+##data of CPI Transportation Services
+tspt<- getSymbols("CUSR0000SAS4", src = "FRED", auto.assign = FALSE)
+tspt$yoy_chg<- diff(tspt$CUSR0000SAS4,12)
+tspt$mom_chg<- diff(tspt$CUSR0000SAS4,1)
+tspt$yoy_pct_chg<- (tspt$yoy_chg/stats::lag(tspt$CUSR0000SAS4,12)) * 100
+tspt$mom_pct_chg<- (tspt$mom_chg/stats::lag(tspt$CUSR0000SAS4,1)) * 100
+```
+
+```{r}
+##plot of CPI Transportation Services
+plot.zoo(tspt$yoy_pct_chg["2000/"], main = "YoY % Change in CPI Transportation Services", col = "red", ylab = "Percent Change", xlab = "Date")
+abline(h = mean(tspt$yoy_pct_chg["2015/"], na.rm = TRUE), col = "blue", lwd = 1, lty = 2)
+
+plot.xts(tspt$mom_pct_chg["2000/"], main = "MoM % Change in CPI Transportation Services", col = "red", ylab = "Percent Change", xlab = "Date")
+
+plot.xts(tspt$CUSR0000SAS4["2000/"], main = "Transportation Services Price Index", col = "red", ylab = "Index Level", xlab = "Date")
+lines(SMA(tspt$CUSR0000SAS4["2000/"], 12), col = "blue", lty = "dashed")
+
+tspt_5yr<- window(tspt["2015-03-01/2020-02-01"])
+```
+
+```{r}
+##data of Lodging Away from Home
+lafh<- getSymbols("CUSR0000SEHB", src = "FRED", auto.assign = FALSE)
+lafh$yoy_chg<- diff(lafh$CUSR0000SEHB,12)
+lafh$mom_chg<- diff(lafh$CUSR0000SEHB,1)
+lafh$yoy_pct_chg<- (lafh$yoy_chg/stats::lag(lafh$CUSR0000SEHB,12)) * 100
+lafh$mom_pct_chg<- (lafh$mom_chg/stats::lag(lafh$CUSR0000SEHB,1)) * 100
+```
+
+```{r}
+##plot of Lodging Away from Home
+plot.zoo(lafh$yoy_pct_chg["2015/"], main = "YoY % Change in CPI Lodging Away from Home", col = "red", ylab = "Percent Change", xlab = "Date")
+abline(h = mean(lafh$yoy_pct_chg["2015/"], na.rm = TRUE), col = "blue", lwd = 1, lty = 2)
+
+plot.xts(lafh$mom_pct_chg["2015/"], main = "MoM % Change in CPI Lodging Away from Home", col = "red", ylab = "Percent Change", xlab = "Date")
+
+plot.xts(lafh$CUSR0000SEHB["2015/"], main = "Lodging Away from Home Price Index", col = "red", ylab = "Index Level", xlab = "Date")
+```
+
+
+```{r}
+##data of Airline Fares
+air<- getSymbols("CUSR0000SETG01", src = "FRED", auto.assign = FALSE)
+air$yoy_chg<- diff(air$CUSR0000SETG01,12)
+air$yoy_pct_chg<- (air$yoy_chg/stats::lag(air$CUSR0000SETG01,12)) * 100
+```
+
+```{r}
+#plot of Airline Fares
+plot.zoo(air$yoy_pct_chg["2015/"], main = "YoY % Change in CPI Airline Fares", col = "red", ylab = "Percent Change", xlab = "Date")
+abline(h = mean(air$yoy_pct_chg["2015/"], na.rm = TRUE), col = "blue", lwd = 1, lty = 2)
+
+plot.xts(air$CUSR0000SETG01["2015/"], main = "Airfare Price Index", col = "red", ylab = "Index Level", xlab = "Date")
+lines(SMA(air$CUSR0000SETG01["2015/"], 12), col = "blue", lty = "dashed")
+```
+
+```{r}
+##data of CPI Telephone Services
+tel<- getSymbols("CUUR0000SEED", src = "FRED", auto.assign = FALSE)
+tel$yoy_chg<- diff(tel$CUUR0000SEED,12)
+tel$yoy_pct_chg<- (tel$yoy_chg/stats::lag(tel$CUUR0000SEED,12)) * 100
+```
+
+```{r}
+##plot of CPI Telephone Services
+plot.zoo(tel$yoy_pct_chg["2015/"], main = "YoY % Change in CPI Telephone Services", col = "red", ylab = "Percent Change", xlab = "Date")
+abline(h = mean(tel$yoy_pct_chg["2015/"], na.rm = TRUE), col = "blue", lwd = 1, lty = 2)
+```
+
+```{r}
+##combined plot of CPI Shelter Components
+par(mfrow = c(3,1), mex = 0.7, cex = 0.8)
+plot.zoo(oer$oer_yoy_pct["2015/"], main = "YoY % Change in OER", col = "red", ylab = "Percent Change", xlab = "Date")
+abline(h = mean(oer$oer_yoy_pct["2015/"], na.rm = TRUE), col = "blue", lwd = 1, lty = 2)
+plot.zoo(rpr$yoy_pct_chg["2015/"], main = "YoY % Change in Rent of Primary Residence", col = "red", ylab = "Percent Change", xlab = "Date")
+abline(h = mean(rpr$yoy_pct_chg["2015/"], na.rm = TRUE), col = "blue", lwd = 1, lty = 2)
+plot.zoo(lafh$yoy_pct_chg["2015/"], main = "YoY % Change in CPI Lodging Away from Home", col = "red", ylab = "Percent Change", xlab = "Date")
+abline(h = mean(lafh$yoy_pct_chg["2015/"], na.rm = TRUE), col = "blue", lwd = 1, lty = 2)
+```
+
+```{r}
+##combined plot of CPI Shelter Components
+par(mfrow = c(3,1), mex = 0.7, cex = 0.8)
+plot.zoo(oer$oer_yoy_pct["2015/"], main = "YoY % Change in OER", col = "#FFCC33", ylab = "Percent Change", xlab = "Date")
+abline(h = mean(oer$oer_yoy_pct["2015/"], na.rm = TRUE), col = "#3366CC", lwd = 1, lty = 2)
+plot.zoo(rpr$yoy_pct_chg["2015/"], main = "YoY % Change in Rent of Primary Residence", col = "#FFCC33", ylab = "Percent Change", xlab = "Date")
+abline(h = mean(rpr$yoy_pct_chg["2015/"], na.rm = TRUE), col = "#3366CC", lwd = 1, lty = 2)
+plot.zoo(lafh$yoy_pct_chg["2015/"], main = "YoY % Change in CPI Lodging Away from Home", col = "#FFCC33", ylab = "Percent Change", xlab = "Date")
+abline(h = mean(lafh$yoy_pct_chg["2015/"], na.rm = TRUE), col = "#3366CC", lwd = 1, lty = 2)
+```
+
+
+```{r}
+## moving CPI and CRB data so they match using the last day of the month
+cpi_core_me<- to.period(cpi_core, period = "months", OHLC = FALSE, indexAt = "lastof")
+crb_me<- to.period(crb_xts, period = "months", OHLC = FALSE, indexAt = "lastof")
+cpi_crb<- merge(cpi_core_me,crb_me)
+```
+
+
+
+```{r}
+##plot of YoY percent change in the CRB index and scatter plot of three month percent change in the CRB index to the YoY Core CPI Change
+plot.zoo(crb_xts["1994/2021","one_year_percent"], col = "red")
+ggplot(as.data.frame(cpi_crb), aes(stats::lag(three_month_percent,3),yoy_cpi)) + geom_point() + ylim(0,5) + geom_smooth(method = "lm")
+```
+
+
+```{r}
+## Adding 3 month moving average U-3 Unemployment rate to dataset
+merged$uer_3M<- SMA(merged$UNRATE,3)
+merged$vac_change<- diff(merged$vacancy,12)
+```
+
+```{r}
+## Creating windows of data
+merged_window<- window(merged, start = "2010-03-01", end = "2022-06-01")
+merged_oer<- window(merged, start = "1983-01-01", end = "2022-06-01")
+```
+
+```{r}
+## Fitting a model to predict the change in OER using lagged 3M MA UER, HPI, & Vacancy Rate
+oer_model<- lm(oer_yoy_pct ~ stats::lag(uer_3M,3) + yoy_hpi + vacancy, data = merged_window)
+summary(oer_model)
+```
+```{r}
+##Creating forecasted values to predict OER
+dates<- seq(as.Date("2022-05-01"),as.Date("2023-11-01"),"month")
+uer_fore<- seq(3.6,5.6,length.out = 19)
+hpi_growth<- as.double(1.2 * last(merged_window$hpi))
+hpi_fore<- seq(300.85,361.02, length.out = 19)
+hpi_per<- seq(20.39,8, length.out = 19)
+vac_fore<- seq(5.8,6.5, length.out = 19)
+vac_chg<- rep(-1.2,19)
+forecast_values<- data.frame(date = dates,uer_3M = uer_fore, hpi = hpi_fore, vacancy = vac_fore, yoy_hpi = hpi_per, vac_change = vac_chg)
+forecast_xts<- xts(forecast_values[,2:6],order.by = forecast_values$date)
+tail(forecast_xts)
+```
+```{r}
+##using the OER model to predict next year's rate
+(oer_predict<- predict(oer_model,forecast_xts))
+oer_pred_df<- as.data.frame(oer_predict)
+oer_pred_xts<- xts(oer_pred_df, order.by = forecast_values$date)
+```
+
+
+
+```{r}
+## Creating rolling model of previous regression to forecast OER change using 36 month rolling periods
+roll_oer_model<- roll_lm(stats::lag(merged_window$uer_3M,3) + merged_window$hpi + merged_window$vacancy, merged_window$oer_yoy_pct, width = 36)
+summary(roll_oer_model)
+```
+
+```{r}
+## Rolling R-squared of linear model to predict OER
+plot.zoo(roll_oer_model$r.squared, col = "red")
+```
+
+```{r}
+## Extracting OER linear model statistics and converting to an xts
+model_df<- augment(oer_model)
+model_xts<- xts(model_df[-1], order.by = as.Date(model_df$.rownames))
+model_xts2<- rbind(model_xts$.fitted,oer_pred_xts)
+model_xts3<- cbind(model_xts2, model_xts$oer_yoy_pct)
+```
+
+```{r}
+## Plotting predicted vs actual OER using model
+plot(model_xts$oer_yoy_pct, col = "red", main = "YoY OER Actual (red) vs Model Predicted (blue)")
+lines(model_xts$.fitted, col = "blue")
+lines(oer_pred_xts, lty = 2)
+```
+```{r}
+plot(model_xts3$.fitted["2014-01-01/"], col = "#FFCC33", main = "YoY OER Actual vs Model Predicted", ylim = c(1,6), lwd = 2)
+lines(merged_window$oer_yoy_pct["2014-01-01/"], col = "#3366cc", lwd =2)
+addLegend(legend.loc = "topleft", legend.names = c("Actual OER", "Predicted OER"),  ncol = 1,  fill = c("#3366cc","#FFCC33"))
+
+```
+
+
+
+```{r}
+## Correlograms of OER Index
+monthly_oer<- diff(merged_oer$oer_index)
+acf2(diff(merged_oer$oer_index), max.lag = 60)
+```
+
+```{r}
+## Arima model of the OER index
+sarima(merged_oer$oer_index,p = 4,d = 2, q = 2, P = 0, D = 0, Q = 0, S = 0)
+```
+
+```{r}
+## Using auto.arima to forecast OER and plot forecasts 12 months ahead
+auto.arima(merged_oer$oer_index, seasonal = TRUE)
+oer_arima <- sarima.for(merged_oer$oer_index, n.ahead = 12, p = 4, d = 2,q = 2)
+```
+
+```{r}
+## Correlograms of Core CPI
+acf2(diff(cpi_core$core_cpi))
+```
+
+```{r}
+## Auto.arima of Core CPI
+auto.arima(cpi_core$core_cpi, seasonal = TRUE)
+```
+
+
+```{r}
+## Arima model using own evaluation of ACF and PACF
+sarima(cpi_core$core_cpi, p = 2,d = 2, q = 2, P = 0, D = 0, Q = 0, S = 0)
+```
+
+```{r}
+## Core CPI forecast using own parameters for Arima model
+core_cpi_arima <- sarima.for(cpi_core$core_cpi, n.ahead = 12, p = 2, d = 2,q = 2)
+```
+
+```{r}
+## Creating training and test windows for Core CPI
+train<- window(cpi_core, start = "1990-01-01", end = "2022-08-01")
+test<- window(cpi_core, start = "2022-09-01", end = "2023-08-01")
+```
+
+```{r}
+## ACF and PACF for train window of Core CPI
+acf2(diff(train$core_cpi))
+```
+
+```{r}
+## Auto.arima of training window for Core CPI
+auto.arima(train$core_cpi, seasonal = TRUE)
+```
+```{r}
+## Arima model using own parameters for Core CPI
+sarima(train$core_cpi, p = 13,d = 2, q = 2, P = 0, D = 0, Q = 0, S = 0)
+```
+```{r}
+## Forecasting Core CPI levels for test period
+core_cpi_train <- sarima.for(train$core_cpi, n.ahead = 12, p = 13, d = 2,q = 3)
+```
+
+
+```{r}
+## Assigning ARIMA model 
+arima_model<- sarima(train$core_cpi, p = 9,d = 2, q = 6, P = 0, D = 0, Q = 0, S = 0)
+```
+```{r}
+#Create a sequence of dates to match forecast period and then create an xts object indexing the predictions to dates
+fcst_date<- seq(as.Date("2022-09-01"),as.Date("2023-08-01"), by = "months")
+fcst_series<- xts(core_cpi_train$pred, order.by = fcst_date)
+colnames(fcst_series)[1]<- "Forecasted"
+```
+
+```{r}
+#Merge actual data with predictions and then calculate YoY changes in percent
+train_fcst<- merge(train,fcst_series)
+train_fcst$pct_yoy<- (train_fcst$core_cpi/stats::lag(train_fcst$core_cpi,12))-1
+train_fcst$fcst_pct<- (train_fcst$Forecasted/stats::lag(train_fcst$core_cpi,12))-1
+```
+
+```{r}
+#Plot actual and predictions
+plot(train_fcst$pct_yoy["2010/"], ylim = c(-0.02,0.10), main = "Actual YoY Core Inflation and Predicted", col = "#FFCC33")
+lines(train_fcst$fcst_pct,lty = 2, col = "#3366CC", lwd = 2)
+addLegend(legend.loc = "topleft", legend.names = c("Actual Core CPI", "Predicted Core CPI"),  ncol = 1,  fill = c("#FFCC33","#3366cc"))
+```
+
+
+```{r}
+cpi_head<- getSymbols("CPIAUCNS", src = "FRED", auto.assign = FALSE)
+core_pce<- getSymbols("PCEPILFE", src = "FRED", auto.assign = FALSE)
+cpi_services<- getSymbols("CUSR0000SAS", src = "FRED", auto.assign = FALSE)
+cpi_goods<- getSymbols("CUSR0000SACL1E", src = "FRED", auto.assign = FALSE)
+class_a<- getSymbols("CUURA000SAS2RS", src = "FRED", auto.assign = FALSE)
+class_b_c<- getSymbols("CUURX000SAS2RS", src = "FRED", auto.assign = FALSE)
+cpi_nsa<- getSymbols("CPALTT01USM657N", src = "FRED", auto.assign = FALSE)
+```
+
+```{r}
+colnames(cpi_head)[1]<- "cpi_head"
+colnames(core_pce)[1]<- "core_pce"
+colnames(cpi_services)[1]<- "cpi_services"
+colnames(cpi_goods)[1]<- "cpi_goods"
+colnames(class_a)[1]<- "class_a"
+colnames(class_b_c)[1]<- "class_b_c"
+```
+
+
+```{r}
+cpi_head$yoy_chg<- diff(cpi_head$cpi_head,12)
+cpi_head$yoy_pct<- (cpi_head$yoy_chg/stats::lag(cpi_head$cpi_head,12)) * 100
+core_pce$yoy_chg<- diff(core_pce$core_pce,12)
+core_pce$yoy_pct<- (core_pce$yoy_chg/stats::lag(core_pce$core_pce,12)) * 100
+cpi_services$yoy_chg<- diff(cpi_services$cpi_services,12)
+cpi_services$yoy_pct_chg<- (cpi_services$yoy_chg/stats::lag(cpi_services$cpi_services,12)) * 100
+cpi_goods$yoy_chg<- diff(cpi_goods$cpi_goods,12)
+cpi_goods$yoy_pct_chg<- (cpi_goods$yoy_chg/stats::lag(cpi_goods$cpi_goods,12)) * 100
+class_a$yoy_chge<- diff(class_a$class_a,12)
+class_a$yoy_pct_chg<- (class_a$yoy_chg/stats::lag(class_a$class_a,12)) * 100
+class_b_c$yoy_chge<- diff(class_b_c$class_b_c,12)
+class_b_c$yoy_pct_chg<- (class_b_c$yoy_chg/stats::lag(class_b_c$class_b_c,12)) * 100
+```
+
+
+```{r}
+## Correlograms of Headline CPI and Core PCE
+acf2(diff(cpi_head$cpi_head))
+acf2(diff(core_pce$core_pce))
+```
+
+```{r}
+auto.arima(cpi_head$cpi_head)
+```
+
+```{r}
+auto.arima(core_pce$core_pce)
+```
+
+```{r}
+arima_cpi_head<- sarima(cpi_head$cpi_head, p = 0,d = 2, q = 2, P = 0, D = 0, Q = 0, S = 0)
+```
+
+```{r}
+arima_core_pce<- sarima(core_pce$core_pce, p = 0,d = 2, q = 7, P = 0, D = 0, Q = 0, S = 0)
+```
+
+```{r}
+## Forecasting Headline CPI levels 
+cpi_head_fore <- sarima.for(cpi_head$cpi_head, n.ahead = 12, p = 0, d = 2,q = 2)
+```
+
+```{r}
+## Forecasting Core PCE levels 
+core_pce_fore <- sarima.for(core_pce$core_pce, n.ahead = 12, p = 0, d = 2,q = 7)
+```
+
+```{r}
+real_gdp<- getSymbols("GDPC1", src = "FRED", auto.assign = FALSE)
+```
+
+```{r}
+colnames(real_gdp)[1]<- "GDP"
+```
+
+```{r}
+acf2(diff(real_gdp$GDP))
+```
+
+```{r}
+auto.arima(real_gdp$GDP)
+```
+
+```{r}
+arima_gdp<- sarima(real_gdp$GDP, p = 2,d = 2, q = 2, P = 0, D = 0, Q = 0, S = 0)
+```
+
+```{r}
+## Forecasting Real GDP Levels
+real_gdp_fore <- sarima.for(real_gdp$GDP, n.ahead = 12, p = 2, d = 1,q = 2)
+```
+
+```{r}
+plot(cpi_services$yoy_pct["2000/"], col = "red", main = "YoY Change in Core CPI Services vs Core Goods", ylim = c(-3,12))
+lines(cpi_goods$yoy_pct["2000/"], col = "blue")
+```
+```{r}
+plot(cpi_services$yoy_pct["2000/"], col = "#FFCC33", main = "YoY Change in Core CPI Services vs Core Goods", ylim = c(-3,13), lwd = 2)
+lines(cpi_goods$yoy_pct["2000/"], col = "#3366cc", lwd = 2)
+addLegend(legend.loc = "topleft", legend.names = c("Core Services", "Core Goods"),  ncol = 1,  fill = c("#FFCC33","#3366cc"))
+```
+
+```{r}
+gdp_pce = merge(gdp_xts,pce_xts)
+plot(gdp_pce$gdp_xts["2021/"], col = "#FFCC33", main = "2022 GDP and Core PCE Inflation Forecasts", ylim = c(0,7), lwd = 2) 
+lines(gdp_pce$pce_xts["2021/"], col = "#3366cc", lwd = 2)
+addLegend(legend.loc = "topleft", legend.names = c("2022 GDP Forecast", "2022 Core PCE Inflation Forecast"),  ncol = 1,  fill = c("#FFCC33","#3366cc"))
+```
+
+```{r}
+plot(rec_xts, col = "#FFCC33", main = "Bloomberg Recession Probabilities for Next Year", ylim = c(0,110), lwd = 2) 
+addLegend(legend.loc = "topleft", legend.names = ("Probability"),  ncol = 1,  fill = ("#FFCC33"))
+```
+
+```{r}
+plot(class_a$yoy_pct["2006/"], col = "red", main = "YoY Change in Class A Rent (red) vs Class B (blue)", ylim = c(-2,7))
+lines(class_b_c$yoy_pct["2006/"], col = "blue")
+```
+
+```{r}
+plot(cpi_core$yoy_cpi["2017-06-01/"], main = "US Inflation Measures", lwd = 2, col = "#FFCC33", ylim = c(-2.5,10))
+lines(cpi_head$yoy_pct["2017-06-01/"],lwd = 2, col = "#3366cc")
+#lines(core_pce$yoy_pct["1970/"], lwd = 2,  col = "red")
+#addLegend(legend.loc = "topright", legend.names = c("Core CPI", "Headline CPI", "Core PCE"),  ncol = 1,  fill = c("#FFCC33","#3366cc","red"))
+addLegend(legend.loc = "topleft", legend.names = c("Core CPI", "Headline CPI"),  ncol = 1,  fill = c("#FFCC33","#3366cc"))
+```
+
+```{r}
+plot(cpi_core$yoy_cpi["1970/"], main = "US Inflation Measures", lwd = 2, col = "#FFCC33", ylim = c(-2.5,16))
+lines(cpi_head$yoy_pct["1970/"],lwd = 2, col = "#3366cc")
+lines(core_pce$yoy_pct["1970/"], lwd = 2,  col = "red")
+addLegend(legend.loc = "topright", legend.names = c("Core CPI", "Headline CPI", "Core PCE"),  ncol = 1,  fill = c("#FFCC33","#3366cc","red"))
+```
+
+```{r}
+plot(hpi$yoy_hpi, col = "red", main = "S&P/CS Home Price Index YoY")
+```
+```{r}
+plot.xts(cpi_core$mom_cpi["1970/"], col = "red", main = "MoM % Change Core CPI")
+```
+```{r}
+plot.xts(cpi_nsa$CPALTT01USM657N, col = "red", main = "MoM % Change in NSA CPI")
+```
+```{r}
+summary(cpi_nsa$CPALTT01USM657N)
+sd(cpi_nsa$CPALTT01USM657N)
+```
+```{r}
+acf2(cpi_nsa$CPALTT01USM657N)
+```
+
+```{r}
+## Extracting time index from test data and assigning predictions to the index (preds wil only work when comparing actual vs predicited, i.e. historical data)
+time<- index(test)
+preds<- xts(core_cpi_train$pred, order.by = time)
+```
+
+```{r}
+## Merging test data to predicted data
+test1<- merge(test,preds)
+```
+
+```{r}
+## Plot of predicted Core CPI levels to actual levels
+plot(test1$core_cpi, type = "b", col = "red",  main = "Actual Core CPI (red) vs Predicted (blue)")
+lines(test1$preds, type = "b", col = "blue" )
+```
+
+```{r}
+## Creating a function to use for Cross Validation
+farima<- function(x,h){
+  forecast(Arima(x, order = c(9,2,6)), h = h)
+}
+```
+
+
+
+## Cross Validation of Arima Model ****TAKES ALMOST 2 HOURS TO RUN!!!!!!!!!!!******************
+e<- tsCV(cpi_core_uni, farima, h = 12)
+
+```{r}
+sqrt(mean(e^2, na.rm = TRUE))
+```
+
+```{r}
+cpi_core %>%
+  farima(h=12) %>%
+  residuals() -> res
+res^2 %>%
+  mean(na.rm = TRUE) %>%
+  sqrt()
+```
+```{r}
+mse<- colMeans(e^2, na.rm = TRUE)
+```
+
+```{r}
+data.frame(h = 1:12, MSE = mse) %>%
+  ggplot(aes(x=h, y = MSE)) + geom_point()
+```
