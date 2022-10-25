@@ -1,0 +1,194 @@
+---
+title: "Recession Indicators"
+author: "Andrew"
+date: "2022-10-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+##load packages
+library(ggplot2)
+library(zoo)
+library(quantmod)
+library(roll)
+library(Rblpapi)
+library(TTR)
+library(tis)
+con<- blpConnect()
+start_date <- as.Date("2007-10-01")
+non_trade <- "FALSE"
+```
+
+
+```{r}
+##Retrieve yield curve data from Fred for the 10yr Constant Maturity Yield less the Fed Funds Rate
+ten_ffr<- getSymbols("T10YFF", src = "FRED", auto.assign = FALSE)
+```
+
+```{r}
+##Retrieve NBER Recession dates, 0 = no recession, 1 = recession
+recess<- getSymbols("USREC", src = "FRED", auto.assign = FALSE)
+```
+
+```{r}
+#Merge ten_ffr and recess, start data at 1962-01-02
+recess_df<- merge(ten_ffr, recess)
+recess_df<- recess_df["1962/"]
+recess_df<- na.locf(recess_df)
+```
+
+```{r}
+##Create new variable indicating if economy in recession 12 months out
+recess_df$lead_recess<- stats::lag(recess_df$USREC,-265)
+```
+
+```{r}
+#Split into training and test datasets
+train_recess<- window(recess_df["/12-31-1996"])
+test_recess<- window(recess_df["1997-01-01/"])
+```
+
+
+```{r}
+##First Logistic regression model for the data
+rec_glm<- glm(lead_recess ~ T10YFF, data = train_recess, family = binomial(link = "logit"))
+summary(rec_glm)
+```
+```{r}
+##Using fitted model to predict on test set
+recess_predict<- predict(rec_glm,test_recess, type = "response")
+summary(recess_predict)
+```
+```{r}
+library(pROC)
+roc(as.matrix(test_recess$lead_recess),round(recess_predict))
+```
+
+```{r}
+##Setting threshold probability for the model and looking at the confusion matrix (Actual on side, predicted across top of matrix)
+thresh<- 0.3
+rec_predict_thresh<- as.integer(recess_predict> thresh)
+(conf_matrix<- as.matrix(table(test_recess$lead_recess, rec_predict_thresh)))
+```
+
+```{r}
+##Creating a vector of thresholds. The models predicted values range from 0.006 to 0.442
+thresh_seq<- seq(0.01,0.40,0.05)
+```
+
+```{r}
+##Creating function to compare several threshold levels in the model
+thresh_func<- function(x){
+  pt<- as.integer(recess_predict>x)
+  return(pt)
+}
+```
+
+```{r}
+##Applying threshold function across vector of thresholds
+thresholds<-lapply(thresh_seq, thresh_func)
+```
+
+
+```{r}
+##Function to create confusion matrices across all thresholds
+cm_func<- function(y){
+  mtx<- as.matrix(table(test_recess$lead_recess,y))
+  return(mtx)
+}
+```
+
+```{r}
+##Applying confusion matrix function to see confusion matrix for each threshold 
+(thresh_mtx<- lapply(thresholds,cm_func))
+```
+
+```{r}
+#Create an accuracy function to apply to each threshold matrix
+accuracy<- function(x){
+  acc<- (x[1,1] + x[2,2])/sum(x)
+  return(acc)
+}
+```
+
+```{r}
+#Create a Sensitivity function to apply to each threshold matrix (calculates percent of predicting true positives to all true positives and negatives)
+sensitivity<- function(x){
+  sens<- (x[1,1]/(x[1,1] + x[1,2]))
+  return(sens)
+}
+```
+
+```{r}
+#Create a Specificity function to apply to each threshold matrix (calculates percent of predicting true negatives to sum of true positives and false positives)
+specificity<- function(x){
+  spec<- (x[2,2]/(x[2,2] + x[2,1]))
+  return(spec)
+}
+```
+
+
+```{r}
+#Calculate the accuracy of each matrix
+(result<- lapply(thresh_mtx, accuracy))
+acc_df<- t(as.data.frame(result,col.names = thresh_seq))
+acc_df <- cbind(newColName = rownames(acc_df), acc_df)
+rownames(acc_df) <- 1:nrow(acc_df)
+```
+
+```{r}
+#Calculate the sensitivity of each matrix (True positive rate)
+(result_sens<- lapply(thresh_mtx, sensitivity))
+acc_df_sens<- t(as.data.frame(result_sens,col.names = thresh_seq))
+acc_df_sens <- cbind(newColName = rownames(acc_df_sens), acc_df_sens)
+rownames(acc_df_sens) <- 1:nrow(acc_df_sens)
+```
+
+```{r}
+#Calculate the specificity of each matrix (True Negative Rate)
+(result_spec<- lapply(thresh_mtx, specificity))
+acc_df_spec<- t(as.data.frame(result_spec,col.names = thresh_seq))
+acc_df_spec <- cbind(newColName = rownames(acc_df_spec), acc_df_spec)
+rownames(acc_df_spec) <- 1:nrow(acc_df_spec)
+```
+
+
+```{r}
+library(kableExtra)
+#Create fancy table of accuracy level at each threshold
+kable(acc_df, col.names = c("Threshold Level","Model Accuracy"))
+```
+
+
+
+```{r}
+#Create fancy table of sensitivity level at each threshold
+kable(acc_df_sens, col.names = c("Threshold Level","Model Sensitivity"))
+```
+
+```{r}
+#Create fancy table of specificty level at each threshold
+kable(acc_df_sens, col.names = c("Threshold Level","Model Sensitivity"))
+```
+
+```{r}
+library(EWS)
+clean_recess<- recess_df["1962-01-02/2021-10-19"]
+y<- as.vector(clean_recess$lead_recess)
+x<- as.vector(clean_recess$T10YFF)
+ews_model<- Logistic_Estimation(Dicho_Y = y,Exp_X =  x, Intercept = TRUE, Nb_Id = 1, Lag = 1, type_model = 1)
+```
+
+```{r}
+ews_model
+```
+```{r}
+test_2<- window(recess_df["2021-10-20/"])
+predict(ews_model,test_2)
+```
+
+
