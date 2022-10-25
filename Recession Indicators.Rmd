@@ -59,10 +59,24 @@ rec_glm<- glm(lead_recess ~ T10YFF, data = train_recess, family = binomial(link 
 summary(rec_glm)
 ```
 ```{r}
-##Using fitted model to predict on test set
+##Using fitted model to predict on test set, response output of probabilities from model
 recess_predict<- predict(rec_glm,test_recess, type = "response")
 summary(recess_predict)
 ```
+```{r}
+##Create dataframe of predicted probabilites, convert to xts, and change column name
+rec_pred_df<- as.data.frame(recess_predict)
+rec_pred_df$date<- as.Date(rownames(rec_pred_df),"%Y-%m-%d")
+rec_prob_xts<- xts(rec_pred_df[,-2], order.by = rec_pred_df$date)
+colnames(rec_prob_xts)[1]<- "Probability"
+```
+
+```{r}
+##Plot of recession probabilities
+plot(rec_prob_xts$Probability, main = "Probability of Recession", col = "#FFCC33")
+```
+
+
 ```{r}
 library(pROC)
 roc(as.matrix(test_recess$lead_recess),round(recess_predict))
