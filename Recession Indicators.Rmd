@@ -47,9 +47,25 @@ recess_df$lead_recess<- stats::lag(recess_df$USREC,-265)
 ```
 
 ```{r}
-##Plot of 10yr less FFR curve spread for all time periods
-plot(recess_df$T10YFF, main = "10yr UST Yield less FFR", col = "#FFCC33")
+##Create dataframe on monthly time periods, truncate dataframe to the start of curve data
+ten_ffr_monthly<- to.monthly(ten_ffr)
+recess_monthly<- merge(recess, ten_ffr_monthly)
+recess_monthly<- recess_monthly["1962/"]
+recess_monthly<- na.locf(recess_monthly)
+recess_monthly$lead_recess<- stats:: lag(recess_monthly$USREC,-12)
 ```
+
+
+```{r}
+##Plot of 10yr less FFR curve spread for all time periods
+plot(recess_df$T10YFF, main = "10yr UST Yield less FFR", col = "#FFCC33", ylim = c(-12,6), lwd = 0.5)
+```
+
+```{r}
+##Plot of monthly 10yr less FFR Curve
+plot(recess_monthly$ten_ffr.Open, main = "10yr UST Yield less FFR", col = "#FFCC33")
+```
+
 
 ```{r}
 ##Plot of 10yr less FFR curve spread for 1997 to present
@@ -62,12 +78,24 @@ train_recess<- window(recess_df["/12-31-1996"])
 test_recess<- window(recess_df["1997-01-01/"])
 ```
 
+```{r}
+#Split into training and test datasets for monthly data
+monthly_train<- window(recess_monthly["/1997"])
+monthly_test<- window(recess_monthly["1997/"])
+```
+
 
 ```{r}
 ##First Logistic regression model for the data
 rec_glm<- glm(lead_recess ~ T10YFF, data = train_recess, family = binomial(link = "logit"))
 summary(rec_glm)
 ```
+
+```{r}
+rec_glm_monthly<- glm(lead_recess ~ ten_ffr.Open, data = monthly_train, family = binomial(link = "logit"))
+summary(rec_glm_monthly)
+```
+
 
 ```{r}
 ##Using fitted model to predict on test set, response output of probabilities from model
@@ -89,10 +117,31 @@ colnames(rec_prob_xts)[1]<- "Probability"
 plot(rec_prob_xts$Probability, main = "Probability of Recession: 10yr/FFR Spread", col = "#FFCC33")
 ```
 
+```{r}
+##Using fitted model to predict on test set, response output of probabilities from model (MONTHLY DATA)
+recess_predict_monthly<- predict(rec_glm_monthly,monthly_test, type = "response")
+summary(recess_predict_monthly)
+```
+
+```{r}
+##Create dataframe of predicted probabilites, convert to xts, and change column name (MONTHLY DATA)
+rec_pred_df_mon<- as.data.frame(recess_predict_monthly)
+rec_pred_df_mon$date<- as.Date(rownames(rec_pred_df_mon),"%Y-%m-%d")
+rec_prob_xts_mon<- xts(rec_pred_df_mon[,-2], order.by = rec_pred_df_mon$date)
+colnames(rec_prob_xts_mon)[1]<- "Probability"
+```
+
+```{r}
+##Plot of recession probabilities (MONTHLY DATA)
+plot(rec_prob_xts_mon$Probability, main = "Probability of Recession: 10yr/FFR Spread", col = "#FFCC33")
+```
+
+
 ```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
 #Load the tsbox package and convert the sahm xts dataframe into a time series object
 library(tsbox)
 rec_ts<- ts_ts(rec_prob_xts)
+rec_ts_mon<- ts_ts(rec_prob_xts_mon)
 ```
 
 ```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
@@ -103,6 +152,13 @@ lines(rec_ts, col = "#FFCC33", lwd = 2)
 abline(h=0.11, lty = 2, col = "#3366CC")
 ```
 
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Plot the Sahm time series object and add recession shading using nberShade (MONTHLY DATA)
+plot(rec_ts_mon, type = 'n', main = "Recession Probability - Monthly", ylab = "Probability", xlab = "Date")
+nberShade()
+lines(rec_ts_mon, col = "#FFCC33", lwd = 2)
+abline(h=0.11, lty = 2, col = "#3366CC")
+```
 
 ```{r}
 library(pROC)
