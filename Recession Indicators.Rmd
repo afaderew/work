@@ -25,29 +25,39 @@ non_trade <- "FALSE"
 
 
 ```{r}
-##Retrieve yield curve data from Fred for the 10yr Constant Maturity Yield less the Fed Funds Rate
+##Retrieve yield curve data from Fred for the 10yr Constant Maturity Yield less the Fed Funds Rate (daily series)
 ten_ffr<- getSymbols("T10YFF", src = "FRED", auto.assign = FALSE)
 ```
 
 ```{r}
-##Retrieve NBER Recession dates, 0 = no recession, 1 = recession
+##Retrieve NBER Recession dates, 0 = no recession, 1 = recession (monthly series)
 recess<- getSymbols("USREC", src = "FRED", auto.assign = FALSE)
 ```
 
 ```{r}
-#Merge ten_ffr and recess, start data at 1962-01-02
+#Merge ten_ffr and recess, start data at 1962-01-02, carry forward the monthly recession indicators to each day within month
 recess_df<- merge(ten_ffr, recess)
 recess_df<- recess_df["1962/"]
 recess_df<- na.locf(recess_df)
 ```
 
 ```{r}
-##Create new variable indicating if economy in recession 12 months out
+##Create new variable indicating if economy in recession 12 months out (pull the recession indicator variable 265 working days into the past)
 recess_df$lead_recess<- stats::lag(recess_df$USREC,-265)
 ```
 
 ```{r}
-#Split into training and test datasets
+##Plot of 10yr less FFR curve spread for all time periods
+plot(recess_df$T10YFF, main = "10yr UST Yield less FFR", col = "#FFCC33")
+```
+
+```{r}
+##Plot of 10yr less FFR curve spread for 1997 to present
+plot(recess_df$T10YFF["1997/"], main = "10yr UST Yield less FFR", col = "#FFCC33")
+```
+
+```{r}
+#Split into training and test datasets (5 recessions in training set and 3 recessions in test set)
 train_recess<- window(recess_df["/12-31-1996"])
 test_recess<- window(recess_df["1997-01-01/"])
 ```
@@ -58,11 +68,14 @@ test_recess<- window(recess_df["1997-01-01/"])
 rec_glm<- glm(lead_recess ~ T10YFF, data = train_recess, family = binomial(link = "logit"))
 summary(rec_glm)
 ```
+
 ```{r}
 ##Using fitted model to predict on test set, response output of probabilities from model
 recess_predict<- predict(rec_glm,test_recess, type = "response")
 summary(recess_predict)
 ```
+#Predicted recession probabilities range from nearly 0% upwards to 44.2%.  Average probability over entire timeframe was around 7.2% with the median at 4.8%.  
+
 ```{r}
 ##Create dataframe of predicted probabilites, convert to xts, and change column name
 rec_pred_df<- as.data.frame(recess_predict)
@@ -73,7 +86,21 @@ colnames(rec_prob_xts)[1]<- "Probability"
 
 ```{r}
 ##Plot of recession probabilities
-plot(rec_prob_xts$Probability, main = "Probability of Recession", col = "#FFCC33")
+plot(rec_prob_xts$Probability, main = "Probability of Recession: 10yr/FFR Spread", col = "#FFCC33")
+```
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Load the tsbox package and convert the sahm xts dataframe into a time series object
+library(tsbox)
+rec_ts<- ts_ts(rec_prob_xts)
+```
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Plot the Sahm time series object and add recession shading using nberShade
+plot(rec_ts, type = 'n', main = "Recession Probability", ylab = "Probability", xlab = "Date")
+nberShade()
+lines(rec_ts, col = "#FFCC33", lwd = 2)
+abline(h=0.11, lty = 2, col = "#3366CC")
 ```
 
 
@@ -186,7 +213,7 @@ kable(acc_df_sens, col.names = c("Threshold Level","Model Sensitivity"))
 
 ```{r}
 #Create fancy table of specificty level at each threshold
-kable(acc_df_sens, col.names = c("Threshold Level","Model Sensitivity"))
+kable(acc_df_spec, col.names = c("Threshold Level","Model Specificity"))
 ```
 
 ```{r}
