@@ -62,7 +62,7 @@ plot(recess_df$T10YFF, main = "10yr UST Yield less FFR", col = "#FFCC33", ylim =
 ```
 
 ```{r}
-##Plot of monthly 10yr less FFR Curve
+##Plot of monthly 10yr less FFR Curve (Monthly data)
 plot(recess_monthly$ten_ffr.Open, main = "10yr UST Yield less FFR", col = "#FFCC33")
 ```
 
@@ -95,6 +95,30 @@ summary(rec_glm)
 rec_glm_monthly<- glm(lead_recess ~ ten_ffr.Open, data = monthly_train, family = binomial(link = "logit"))
 summary(rec_glm_monthly)
 ```
+
+```{r}
+#Function to convert log odds to probability
+logit_prob<- function(logit){
+  odds<- exp(logit)
+  prob<- odds / (1 + odds)
+  return(prob)
+}
+```
+
+
+```{r}
+#Augment training data to get log odds of recess based on fitted model, convert to probabilities, and convert to xts
+library(broom)
+aug_glm_mon<- augment(rec_glm_monthly)
+aug_glm_mon$probs<- logit_prob(aug_glm_mon$.fitted)
+aug_glm_xts<- xts(aug_glm_mon[,-1], order.by = as.Date(aug_glm_mon$.rownames, "%Y-%m-%d"))
+```
+
+```{r}
+#Plot of training data model fitted probs
+plot(aug_glm_xts$probs, main = "Probability of Recession: 10yr/FFR Spread - Train Data", col = "#FFCC33")
+```
+
 
 
 ```{r}
@@ -138,14 +162,15 @@ plot(rec_prob_xts_mon$Probability, main = "Probability of Recession: 10yr/FFR Sp
 
 
 ```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
-#Load the tsbox package and convert the sahm xts dataframe into a time series object
+#Load the tsbox package and convert the rec xts dataframe into a time series object
 library(tsbox)
 rec_ts<- ts_ts(rec_prob_xts)
 rec_ts_mon<- ts_ts(rec_prob_xts_mon)
+aug_ts<- ts_ts(aug_glm_xts$probs)
 ```
 
 ```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
-#Plot the Sahm time series object and add recession shading using nberShade
+#Plot the rec time series object and add recession shading using nberShade
 plot(rec_ts, type = 'n', main = "Recession Probability", ylab = "Probability", xlab = "Date")
 nberShade()
 lines(rec_ts, col = "#FFCC33", lwd = 2)
@@ -157,6 +182,14 @@ abline(h=0.11, lty = 2, col = "#3366CC")
 plot(rec_ts_mon, type = 'n', main = "Recession Probability - Monthly", ylab = "Probability", xlab = "Date")
 nberShade()
 lines(rec_ts_mon, col = "#FFCC33", lwd = 2)
+abline(h=0.11, lty = 2, col = "#3366CC")
+```
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Plot the recession probs time series object and add recession shading using nberShade
+plot(aug_ts, type = 'n', main = "Recession Probability", ylab = "Probability", xlab = "Date")
+nberShade()
+lines(aug_ts, col = "#FFCC33", lwd = 2)
 abline(h=0.11, lty = 2, col = "#3366CC")
 ```
 
