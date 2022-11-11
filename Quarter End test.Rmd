@@ -341,15 +341,17 @@ l_returns<- ((sp_500_xts$SP_500/stats::lag(sp_500_xts$SP_500,1))-1) * 100
 ```{r}
 #Create a histogram of S&P 500 daily log returns
 hist(l_returns, main = "Distribution of Daily S&P 500 Returns: 1928-2022", xlab = "Daily Return", col = "#FFCC33", breaks = 100, xlim = c(-10,10))
-abline(v = last(l_returns), col = "#3366CC", lty = 2, lwd = 2)
+abline(v = l_returns["2022-11-10"], col = "#3366CC", lty = 2, lwd = 2)
 #axis(side = 1, at = seq(-25,20,5), labels = seq(-25,20,5))
 ```
 
 ```{r}
 #Boxplot of S&P 500 daily log returns
 boxplot(l_returns, horizontal = TRUE, col = "#FFCC33", main = "Daily Log Returns S&P 500 1928-2022", xlab = "Daily Returns in %")
-abline(v = last(l_returns), col = "#3366CC", lty = 2, lwd = 2)
+abline(v = l_returns["2022-11-10"], col = "#3366CC", lty = 2, lwd = 2)
 ```
+
+
 ```{r}
 #Add forward returns variables
 sp_500_xts$daily_return<- ((sp_500_xts$SP_500/stats::lag(sp_500_xts$SP_500,1))-1) * 100
@@ -405,10 +407,25 @@ sp_500_df %>%
 
 ```
 ```{r}
+#Filter results for all daily returns > 5% and find the minimum lead returns
+sp_500_df %>%
+  filter(daily_return > 5) %>%
+  summarize(min10 = min(lead_10, na.rm = TRUE), min20 = min(lead_20, na.rm = TRUE), min30 = min(lead_30, na.rm = TRUE), min40 = min(lead_40, na.rm = TRUE), min50 = min(lead_50, na.rm = TRUE), min60 = min(lead_60, na.rm = TRUE), min90 = min(lead_90, na.rm = TRUE), min120 = min(lead_120, na.rm = TRUE), min180 = min(lead_180, na.rm = TRUE), min240 = min(lead_240, na.rm = TRUE))
+
+```
+
+```{r}
+#Filter results for all daily returns > 5% and find the minimum lead returns
+sp_500_df %>%
+  filter(daily_return > 5) %>%
+  summarize(max10 = max(lead_10, na.rm = TRUE), max20 = max(lead_20, na.rm = TRUE), max30 = max(lead_30, na.rm = TRUE), max40 = max(lead_40, na.rm = TRUE), max50 = max(lead_50, na.rm = TRUE), max60 = max(lead_60, na.rm = TRUE), max90 = max(lead_90, na.rm = TRUE), max120 = max(lead_120, na.rm = TRUE), max180 = max(lead_180, na.rm = TRUE),max240 = max(lead_240, na.rm = TRUE))
+```
+
+```{r}
 #Filter results for daily returns > 5% and count lead returns for 240 ahead if positive
 sp_500_df %>%
   filter(daily_return > 5) %>%
-  filter(lead_240 > 0) %>%
+  filter(lead_180 > 0) %>%
   summarise(n = n())
 ```
 
@@ -546,12 +563,43 @@ sp_500_df %>%
   summarize(average10 = mean(lead_10, na.rm = TRUE), average20 = mean(lead_20, na.rm = TRUE), average30 = mean(lead_30, na.rm = TRUE), average40 = mean(lead_40, na.rm = TRUE), average50 = mean(lead_50, na.rm = TRUE), average60 = mean(lead_60, na.rm = TRUE), average90 = mean(lead_90, na.rm = TRUE), average120 = mean(lead_120, na.rm = TRUE), average180 = mean(lead_180, na.rm = TRUE), average240 = mean(lead_240, na.rm = TRUE))
 ```
 
+```{r}
+sp_500_df$date_col<- as.Date(rownames(sp_500_df),"%Y-%m-%d")
+```
+
+```{r}
+(ret_plot<- ggplot(sp_500_df) + geom_point(aes(date_col, daily_return, colour = daily_return > 5), size = 1, alpha = 1) + xlab("Date") + ylab("Daily Return %") + theme_bw() + scale_color_manual(name = "Return > 5%",values = c("#FFCC33", "#3366CC")) + ggtitle("Daily S&P 500 Returns Since 1928")) #+ theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+test_frame <- subset(sp_500_df, select = c("date_col", "daily_return"))
+test_xts<- xts(test_frame[,-1], order.by = test_frame$date_col)
+test_ts<- ts_ts(test_xts)
+```
+
+```{r}
+plot(test_ts, type = "n", main = "S&P 500 Daily Returns: 1928-2022", xlab = "Date", ylab = "Daily Return %")
+nberShade()
+lines(test_ts, col = "#FFCC33")
+abline(h = 5, col = "red", lty = 2)
+```
 
 
 
+```{r}
+(ret_plot_rec<- ggplot(test_frame) + geom_point(aes(date_col, daily_return, colour = daily_return > 5), size = 0.75) + xlab("Date") + ylab("Daily Return %") + theme_bw() + scale_color_manual(name = "Return > 5%",values = c("#FFCC33", "#3366CC")) + ggtitle("Daily S&P 500 Returns Since 1928")) + theme(plot.title = element_text(hjust = 0.5))  
+```
 
+```{r}
+library(plotly)
+pltly<- ggplotly(ret_plot_rec)
+```
 
-
+```{r}
+library(kableExtra)
+#Create fancy table of accuracy level at each threshold
+nice_chart<-kable(great_returns, col.names = c("S&P 500 Index","Daily Return","Lead Return 10d", "Lead Return 20d", "Lead Return 30d", "Lead Return 40d", "Lead Return 50d", "Lead Return 60d", "Lead Return 90d", "Lead Return 120d", "Lead Return 180d", "Lead Return 240d", "Recession?", "Recess in 60d", "Recess in 90d", "Recess in 180d", "Recess in 240d", "Date"))
+```
 
 
 
