@@ -147,6 +147,7 @@ oas_dataframe$year<- format(oas_dataframe$Index,"%Y")
 #Scatterplot of CVIX and corporate OAS
 ggplot(oas_dataframe, aes(cvix_xts, corp_oas_xts)) + geom_point(aes(color=year)) + labs(title = "Relationship between CVIX and Corporate OAS") + xlab("CVIX Index") + ylab("Corporate OAS in %") + theme_bw()
 ```
+
 ```{r}
 #Scatterplot of CVIX and corporate OAS
 ggplot(oas_dataframe, aes(vol_xts, corp_oas_xts)) + geom_point(aes(color=year)) + labs(title = "Relationship between VIX and Corporate OAS") + xlab("VIX Index") + ylab("Corporate OAS in %") + theme_bw()

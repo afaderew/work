@@ -326,7 +326,7 @@ acc_df_sens <- cbind(newColName = rownames(acc_df_sens), acc_df_sens)
 rownames(acc_df_sens) <- 1:nrow(acc_df_sens)
 ```
 ```{r}
-#Calculate the sensitivity of each matrix (True Negative Rate)
+#Calculate the specificity of each matrix (True Negative Rate)
 (result_spec<- lapply(thresh_mtx, specificity))
 acc_df_spec<- t(as.data.frame(result_spec,col.names = thresh_seq))
 acc_df_spec <- cbind(newColName = rownames(acc_df_spec), acc_df_spec)

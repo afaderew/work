@@ -18,6 +18,7 @@ library(TTR)
 library(tis)
 con<- blpConnect()
 start_date <- as.Date("2007-10-01")
+start_date2<- as.Date("1927-12-30")
 non_trade <- "FALSE"
 ```
 
@@ -55,8 +56,11 @@ fred_func<- function(code1,sector){
 ```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
 #Create new variables from Bloomberg data and convert to xts
 liq<- bloom("GVLQUSD INDEX", "PX_LAST",start_date,non_trade)
+sp_500<- bloom("SPX INDEX", "PX_LAST", start_date2,non_trade)
 liq_xts<- xts(liq[,-1], order.by = liq$date)
+sp_500_xts<- xts(sp_500[,-1], order.by = sp_500$date)
 colnames(liq_xts)[1]<- "Value"
+colnames(sp_500_xts)[1]<- "SP_500"
 ```
 
 ```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
@@ -205,6 +209,7 @@ hpi_mom$mom<- (hpi_mom$HPIPONM226S/stats::lag(hpi_mom$HPIPONM226S,1)-1)*100
 ```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
 #Plot adjusted financial conditions
 plot(afcon, col = "#FFCC33", main = "Chicago Fed Adjusted Financial Conditions")
+addLegend(legend.loc = "topright", legend.names = c("Financial Conditions: Higher = More Restrictive"),  ncol = 1,  fill = c("#FFCC33"))
 ```
 
 
@@ -288,6 +293,266 @@ barplot(m2_supply_monthly$yearly_growth["2005/"], ylab = "Percent", main = "YoY 
 #Plot the YoY growth rate of the M2 money supply
 barplot(m2_supply_monthly$monthly_growth["2018/"], ylab = "Percent", main = "MoM % Change in M2 Money Supply", col = "#FFCC33", cex.names = 0.75, las = 2, ylim = c(-2,10))
 ```
+```{r}
+afcon_mon<- to.monthly(afcon)
+fcon_uer<- merge(afcon_mon,uer)
+fcon_uer<- window(fcon_uer["1971-01-01/"])
+```
+
+```{r}
+diff_afcon<- diff(fcon_uer$afcon.Close)
+diff_afcon<- diff_afcon["1971-02-01/2022-10-31"]
+diff_uer<- diff((fcon_uer$UNRATE))
+diff_uer<- diff_uer["1971-02-01/2022-10-31"]
+ccf(as.numeric(diff_afcon),as.numeric(diff_uer), type = "correlation")
+```
+```{r}
+fcon_uer$fcon_chg<- diff(fcon_uer$afcon.Close,16)
+fcon_uer$uer_chg<- stats::lag(fcon_uer$UNRATE,-12) - fcon_uer$UNRATE
+fcon_uer$fcon_int<- fcon_uer$afcon.Close * fcon_uer$fcon_chg
+fcon_uer$lag_uer_chg<- stats::lag(fcon_uer$uer_chg,5)
+```
+
+```{r}
+fcon_uer$year<- format(index(fcon_uer),"%Y")
+#fcon_1995<- fcon_uer["1995/"]
+ggplot(as.data.frame(fcon_uer), aes(fcon_chg,uer_chg)) + geom_point() + geom_smooth(method = "lm") + ggtitle("Prior 10 Mon. Change in Financial Conditions vs Change in UER")
+```
+```{r}
+uer_model<- lm(uer_chg ~ afcon.Close + fcon_chg,  data = fcon_uer)
+summary(uer_model)
+```
+```{r}
+library(broom)
+aug_uer_model<- augment(uer_model)
+```
+
+```{r}
+##Remove outliers
+cooksd<- cooks.distance(uer_model)
+influential<- as.numeric(names(cooksd)[(cooksd > (4/length(fcon_uer$fcon_chg)))])
+```
+
+```{r}
+#Calculate daily returns for the S&P 500
+l_returns<- ((sp_500_xts$SP_500/stats::lag(sp_500_xts$SP_500,1))-1) * 100
+```
+
+```{r}
+#Create a histogram of S&P 500 daily log returns
+hist(l_returns, main = "Distribution of Daily S&P 500 Returns: 1928-2022", xlab = "Daily Return", col = "#FFCC33", breaks = 100, xlim = c(-10,10))
+abline(v = last(l_returns), col = "#3366CC", lty = 2, lwd = 2)
+#axis(side = 1, at = seq(-25,20,5), labels = seq(-25,20,5))
+```
+
+```{r}
+#Boxplot of S&P 500 daily log returns
+boxplot(l_returns, horizontal = TRUE, col = "#FFCC33", main = "Daily Log Returns S&P 500 1928-2022", xlab = "Daily Returns in %")
+abline(v = last(l_returns), col = "#3366CC", lty = 2, lwd = 2)
+```
+```{r}
+#Add forward returns variables
+sp_500_xts$daily_return<- ((sp_500_xts$SP_500/stats::lag(sp_500_xts$SP_500,1))-1) * 100
+sp_500_xts$lead_10<- ((stats::lag(sp_500_xts$SP_500,-10)/sp_500_xts$SP_500)-1) * 100
+sp_500_xts$lead_20<- ((stats::lag(sp_500_xts$SP_500,-20)/sp_500_xts$SP_500)-1) * 100
+sp_500_xts$lead_30<- ((stats::lag(sp_500_xts$SP_500,-30)/sp_500_xts$SP_500)-1) * 100
+sp_500_xts$lead_40<- ((stats::lag(sp_500_xts$SP_500,-40)/sp_500_xts$SP_500)-1) * 100
+sp_500_xts$lead_50<- ((stats::lag(sp_500_xts$SP_500,-50)/sp_500_xts$SP_500)-1) * 100
+sp_500_xts$lead_60<- ((stats::lag(sp_500_xts$SP_500,-60)/sp_500_xts$SP_500)-1) * 100
+sp_500_xts$lead_90<- ((stats::lag(sp_500_xts$SP_500,-90)/sp_500_xts$SP_500)-1) * 100
+sp_500_xts$lead_120<- ((stats::lag(sp_500_xts$SP_500,-120)/sp_500_xts$SP_500)-1) * 100
+sp_500_xts$lead_180<- ((stats::lag(sp_500_xts$SP_500,-180)/sp_500_xts$SP_500)-1) * 100
+sp_500_xts$lead_240<- ((stats::lag(sp_500_xts$SP_500,-240)/sp_500_xts$SP_500)-1) * 100
+```
+
+```{r}
+##Retrieve NBER Recession dates, 0 = no recession, 1 = recession (monthly series)
+recess<- getSymbols("USREC", src = "FRED", auto.assign = FALSE)
+#recess_1929<- recess["1929-10-01/"]
+```
+
+```{r}
+##Add recession indicator to the S&P 500 returns xts object
+sp_500_xts<- merge(sp_500_xts,recess)
+sp_500_xts$USREC<- na.locf(sp_500_xts$USREC)
+sp_500_xts<- sp_500_xts[,1:13]
+sp_500_xts$lead_recess_60<- stats::lag(sp_500_xts$USREC,-60)
+sp_500_xts$lead_recess_90<- stats::lag(sp_500_xts$USREC,-90)
+sp_500_xts$lead_recess_180<- stats::lag(sp_500_xts$USREC,-180)
+sp_500_xts$lead_recess_240<- stats::lag(sp_500_xts$USREC,-240)
+sp_500_xts<- sp_500_xts["1928-01-03/"]
+```
+
+
+```{r}
+#Convert S&P 500 xts object to dataframe
+sp_500_df<- as.data.frame(sp_500_xts)
+```
+
+```{r}
+#Filter results for daily returns >5%
+library(dplyr)
+sp_500_df %>%
+  filter(daily_return > 5) 
+ 
+```
+
+```{r}
+#Filter results for all daily returns > 5% and calculate the average lead returns
+sp_500_df %>%
+  filter(daily_return > 5) %>%
+  summarize(average10 = mean(lead_10, na.rm = TRUE), average20 = mean(lead_20, na.rm = TRUE), average30 = mean(lead_30, na.rm = TRUE), average40 = mean(lead_40, na.rm = TRUE), average50 = mean(lead_50, na.rm = TRUE), average60 = mean(lead_60, na.rm = TRUE), average90 = mean(lead_90, na.rm = TRUE), average120 = mean(lead_120, na.rm = TRUE), average180 = mean(lead_180, na.rm = TRUE), average240 = mean(lead_240, na.rm = TRUE))
+
+```
+```{r}
+#Filter results for daily returns > 5% and count lead returns for 240 ahead if positive
+sp_500_df %>%
+  filter(daily_return > 5) %>%
+  filter(lead_240 > 0) %>%
+  summarise(n = n())
+```
+
+```{r}
+#Filter results for time periods where the US was in recession and daily returns >5%
+sp_500_df %>%
+  filter(USREC == 1) %>%
+  filter(daily_return > 5) 
+```
+```{r}
+#Filter results where the US was not in recession and daily returns > 5%
+sp_500_df %>%
+  filter(USREC == 0) %>%
+  filter(daily_return > 5) 
+```
+```{r}
+#Filter results where the US economy was in recession and returns were > 5%, calculate average leading returns
+sp_500_df %>%
+  filter(USREC == 1) %>%
+  filter(daily_return > 5) %>%
+  summarize(average10 = mean(lead_10, na.rm = TRUE), average20 = mean(lead_20, na.rm = TRUE), average30 = mean(lead_30, na.rm = TRUE), average40 = mean(lead_40, na.rm = TRUE), average50 = mean(lead_50, na.rm = TRUE), average60 = mean(lead_60, na.rm = TRUE), average90 = mean(lead_90, na.rm = TRUE), average120 = mean(lead_120, na.rm = TRUE), average180 = mean(lead_180, na.rm = TRUE), average240 = mean(lead_240, na.rm = TRUE))
+```
+```{r}
+#Filter results where the US economy was in recession and returns were > 5%, calculate average leading returns
+sp_500_df %>%
+  filter(USREC == 0) %>%
+  filter(daily_return > 5) %>%
+  summarize(average10 = mean(lead_10, na.rm = TRUE), average20 = mean(lead_20, na.rm = TRUE), average30 = mean(lead_30, na.rm = TRUE), average40 = mean(lead_40, na.rm = TRUE), average50 = mean(lead_50, na.rm = TRUE), average60 = mean(lead_60, na.rm = TRUE), average90 = mean(lead_90, na.rm = TRUE), average120 = mean(lead_120, na.rm = TRUE), average180 = mean(lead_180, na.rm = TRUE), average240 = mean(lead_240, na.rm = TRUE))
+```
+```{r}
+#Filter results where the US economy was in recession 240 days ahead and returns were > 5%
+sp_500_df %>%
+  filter(lead_recess_240 == 1) %>%
+  filter(daily_return > 5) 
+```
+```{r}
+#Filter results where the US economy was not in recession 240 days ahead and returns were > 5%
+sp_500_df %>%
+  filter(lead_recess_240 == 0) %>%
+  filter(daily_return > 5) 
+```
+```{r}
+#Filter results where the US economy was in recession 240 days ahead and daily returns were > 5%, calculate average lead returns
+sp_500_df %>%
+  filter(lead_recess_240 == 1) %>%
+  filter(daily_return > 5) %>%
+  summarize(average10 = mean(lead_10, na.rm = TRUE), average20 = mean(lead_20, na.rm = TRUE), average30 = mean(lead_30, na.rm = TRUE), average40 = mean(lead_40, na.rm = TRUE), average50 = mean(lead_50, na.rm = TRUE), average60 = mean(lead_60, na.rm = TRUE), average90 = mean(lead_90, na.rm = TRUE), average120 = mean(lead_120, na.rm = TRUE), average180 = mean(lead_180, na.rm = TRUE), average240 = mean(lead_240, na.rm = TRUE))
+```
+
+```{r}
+#Filter results where the US economy was not in recession 240 days ahead and daily returns were > 5%, calculate average lead returns
+sp_500_df %>%
+  filter(lead_recess_240 == 0) %>%
+  filter(daily_return > 5) %>%
+  summarize(average10 = mean(lead_10, na.rm = TRUE), average20 = mean(lead_20, na.rm = TRUE), average30 = mean(lead_30, na.rm = TRUE), average40 = mean(lead_40, na.rm = TRUE), average50 = mean(lead_50, na.rm = TRUE), average60 = mean(lead_60, na.rm = TRUE), average90 = mean(lead_90, na.rm = TRUE), average120 = mean(lead_120, na.rm = TRUE), average180 = mean(lead_180, na.rm = TRUE), average240 = mean(lead_240, na.rm = TRUE))
+```
+
+```{r}
+#Filter results where the US economy was in recession 60 days ahead and daily returns were > 5%
+sp_500_df %>%
+  filter(lead_recess_60 == 1) %>%
+  filter(daily_return > 5) 
+```
+
+```{r}
+#Filter results where the US economy was not in recession 60 days ahead and daily returns were > 5%
+sp_500_df %>%
+  filter(lead_recess_60 == 0) %>%
+  filter(daily_return > 5) 
+```
+```{r}
+#Filter results where the US economy was in recession 60 days ahead and daily returns were > 5%, calculate average lead returns
+sp_500_df %>%
+  filter(lead_recess_60 == 1) %>%
+  filter(daily_return > 5) %>%
+  summarize(average10 = mean(lead_10, na.rm = TRUE), average20 = mean(lead_20, na.rm = TRUE), average30 = mean(lead_30, na.rm = TRUE), average40 = mean(lead_40, na.rm = TRUE), average50 = mean(lead_50, na.rm = TRUE), average60 = mean(lead_60, na.rm = TRUE), average90 = mean(lead_90, na.rm = TRUE), average120 = mean(lead_120, na.rm = TRUE), average180 = mean(lead_180, na.rm = TRUE), average240 = mean(lead_240, na.rm = TRUE))
+```
+```{r}
+#Filter results where the US economy was not in recession 60 days ahead and daily returns were > 5%, calculate average lead returns
+sp_500_df %>%
+  filter(lead_recess_60 == 0) %>%
+  filter(daily_return > 5) %>%
+  summarize(average10 = mean(lead_10, na.rm = TRUE), average20 = mean(lead_20, na.rm = TRUE), average30 = mean(lead_30, na.rm = TRUE), average40 = mean(lead_40, na.rm = TRUE), average50 = mean(lead_50, na.rm = TRUE), average60 = mean(lead_60, na.rm = TRUE), average90 = mean(lead_90, na.rm = TRUE), average120 = mean(lead_120, na.rm = TRUE), average180 = mean(lead_180, na.rm = TRUE), average240 = mean(lead_240, na.rm = TRUE))
+```
+```{r}
+#Filter results where the US economy was in recession 90 days ahead and daily returns were > 5%
+sp_500_df %>%
+  filter(lead_recess_90 == 1) %>%
+  filter(daily_return > 5) 
+```
+```{r}
+#Filter results where the US economy was not in recession 90 days ahead and daily returns were > 5%
+sp_500_df %>%
+  filter(lead_recess_90 == 0) %>%
+  filter(daily_return > 5) 
+```
+```{r}
+#Filter results where the US economy was in recession 90 days ahead and daily returns were > 5%, calculate average lead returns
+sp_500_df %>%
+  filter(lead_recess_90 == 1) %>%
+  filter(daily_return > 5) %>%
+  summarize(average10 = mean(lead_10, na.rm = TRUE), average20 = mean(lead_20, na.rm = TRUE), average30 = mean(lead_30, na.rm = TRUE), average40 = mean(lead_40, na.rm = TRUE), average50 = mean(lead_50, na.rm = TRUE), average60 = mean(lead_60, na.rm = TRUE), average90 = mean(lead_90, na.rm = TRUE), average120 = mean(lead_120, na.rm = TRUE), average180 = mean(lead_180, na.rm = TRUE), average240 = mean(lead_240, na.rm = TRUE))
+```
+```{r}
+#Filter results where the US economy was not in recession 90 days ahead and daily returns were > 5%, calculate average lead returns
+sp_500_df %>%
+  filter(lead_recess_90 == 0) %>%
+  filter(daily_return > 5) %>%
+  summarize(average10 = mean(lead_10, na.rm = TRUE), average20 = mean(lead_20, na.rm = TRUE), average30 = mean(lead_30, na.rm = TRUE), average40 = mean(lead_40, na.rm = TRUE), average50 = mean(lead_50, na.rm = TRUE), average60 = mean(lead_60, na.rm = TRUE), average90 = mean(lead_90, na.rm = TRUE), average120 = mean(lead_120, na.rm = TRUE), average180 = mean(lead_180, na.rm = TRUE), average240 = mean(lead_240, na.rm = TRUE))
+```
+```{r}
+#Filter results where the US economy was in recession 180 days ahead and daily returns were > 5%
+sp_500_df %>%
+  filter(lead_recess_180 == 1) %>%
+  filter(daily_return > 5) 
+```
+```{r}
+#Filter results where the US economy was not in recession 180 days ahead and daily returns were > 5%
+sp_500_df %>%
+  filter(lead_recess_180 == 0) %>%
+  filter(daily_return > 5) 
+```
+```{r}
+#Filter results where the US economy was in recession 180 days ahead and daily returns were > 5%, calculate average lead returns
+sp_500_df %>%
+  filter(lead_recess_180 == 1) %>%
+  filter(daily_return > 5) %>%
+  summarize(average10 = mean(lead_10, na.rm = TRUE), average20 = mean(lead_20, na.rm = TRUE), average30 = mean(lead_30, na.rm = TRUE), average40 = mean(lead_40, na.rm = TRUE), average50 = mean(lead_50, na.rm = TRUE), average60 = mean(lead_60, na.rm = TRUE), average90 = mean(lead_90, na.rm = TRUE), average120 = mean(lead_120, na.rm = TRUE), average180 = mean(lead_180, na.rm = TRUE), average240 = mean(lead_240, na.rm = TRUE))
+```
+```{r}
+#Filter results where the US economy was not in recession 180 days ahead and daily returns were > 5%, calculate average lead returns
+sp_500_df %>%
+  filter(lead_recess_180 == 0) %>%
+  filter(daily_return > 5) %>%
+  summarize(average10 = mean(lead_10, na.rm = TRUE), average20 = mean(lead_20, na.rm = TRUE), average30 = mean(lead_30, na.rm = TRUE), average40 = mean(lead_40, na.rm = TRUE), average50 = mean(lead_50, na.rm = TRUE), average60 = mean(lead_60, na.rm = TRUE), average90 = mean(lead_90, na.rm = TRUE), average120 = mean(lead_120, na.rm = TRUE), average180 = mean(lead_180, na.rm = TRUE), average240 = mean(lead_240, na.rm = TRUE))
+```
+
+
+
+
+
+
+
+
 
 
 
