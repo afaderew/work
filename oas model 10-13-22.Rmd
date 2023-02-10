@@ -53,8 +53,11 @@ ovx_xts<- xts(ovx[,-1], order.by = ovx$date)
 
 ```{r}
 # Use the created bloom function to load the Corporate Index OAS and convert to an xts object
+library(timeDate)
 corp_oas<- bloom("LUACOAS INDEX", "PX_LAST", start_date, non_trade)
 corp_oas_xts<- xts(corp_oas[,-1], order.by = corp_oas$date)
+oas_non<- bloom("LUACOAS INDEX", "PX_LAST", start_date, "TRUE")
+oas_non_xts<- as.xts(oas_non[,-1], order.by = oas_non$date)
 ```
 
 ```{r}
@@ -90,9 +93,17 @@ wti_oil_xts$wti_std_dev<- roll_sd(wti_oil_xts$WTI, width = 120)
 ```
 
 ```{r}
+# Use the created bloom function to load the ISM Manufacturing data and convert to an xts object
+ism_mfg<- bloom("NAPMPMI INDEX", "PX_LAST", start_date, non_trade)
+ism_xts<- xts(ism_mfg[,-1], order.by = ism_mfg$date)
+colnames(ism_xts)[1]<- "ISM_MFG"
+```
+
+
+```{r}
 #Merge xts objects into one dataframe.  Create new window starting on 2007-05-10 to account for the first date of the ovx index
-oas_df<- merge(corp_oas_xts, cvix_xts,vol_xts,jpy_10_xts,us_10_xts, ovx_xts, wti_oil_xts)
-oas_df_window<- window(oas_df["2007-05-10/"])
+oas_df<- merge(corp_oas_xts, cvix_xts,vol_xts,jpy_10_xts,us_10_xts, ovx_xts, wti_oil_xts,ism_xts)
+oas_df_window<- window(oas_df["2007-05-31/"])
 ```
 
 ```{r}
@@ -132,6 +143,9 @@ plot(oas_df_window$wti_std_dev, col = col_yellow, main = "6-month Standard Devia
 ```{r}
 plot(oas_df_window$us_jpy_spread, col = col_yellow, main = "Spread Between US 10yr Yield & Japan 10yr Yield")
 ```
+```{r}
+plot(oas_df_window$ISM_MFG, col = col_yellow, main = "ISM Manufacturing Index", ylim = c(30,67))
+```
 
 ```{r}
 #Convert oas_window_df to a dataframe object to use in ggplot2
@@ -166,6 +180,11 @@ ggplot(oas_dataframe, aes(ovx_xts, corp_oas_xts)) + geom_point(aes(color=year)) 
 ```{r}
 #Scatterplot of CVIX and corporate OAS
 ggplot(oas_dataframe, aes(us_jpy_spread, corp_oas_xts)) + geom_point(aes(color=year)) + labs(title = "Relationship between US/Japan 10yr Yield Spread and Corporate OAS") + xlab("US/Japan 10yr Yield Spread") + ylab("Corporate OAS in %") + theme_bw()
+```
+
+```{r}
+#Scatterplot of ISM Manufacturing and corporate OAS
+ggplot(oas_dataframe, aes(ISM_MFG, corp_oas_xts)) + geom_point(aes(color=year)) + labs(title = "Relationship between ISM Manufacturing and Corporate OAS") + xlab("ISM Mfg Index") + ylab("Corporate OAS in %") + theme_bw() + geom_smooth(method = "lm")
 ```
 
 ```{r}
@@ -261,7 +280,7 @@ test_oas_aug<- merge(test_oas, model_preds_xts)
 
 ```{r}
 # Plot actual test data OAS vs Predicted
-plot(test_oas_aug$corp_oas_xts, col = "#FFCC33", main = "Actual Corporate OAS vs Model Predicted on Test Data")
+plot(test_oas_aug$corp_oas_xts, col = "#FFCC33", main = "Actual Corporate OAS vs Model Predicted on Test Data", ylim = c(0,5.5))
 lines(test_oas_aug$Predicted_OAS, col = "#3366CC")
 addLegend(legend.loc = "topleft", legend.names = c("Actual Corporate OAS", "Model Predicted Corporate OAS"),  ncol = 1,  fill = c(col_yellow,col_blue))
 ```
@@ -287,4 +306,28 @@ plot(augment_xts$corp_oas_xts, main = "Actual OAS vs Model Fitted", col = "#FFCC
 lines(augment_xts$.fitted, col = "#3366CC")
 addLegend(legend.loc = "topright", legend.names = c("Actual Corporate OAS", "Fitted Corporate OAS"),  ncol = 1,  fill = c(col_yellow,col_blue))
 ```
+
+```{r}
+#Retrieve senior loan officer data from FRED
+sloo<- getSymbols("DRTSCILM", src = "FRED", auto.assign = FALSE)
+```
+
+```{r}
+plot(sloo, col = col_yellow, main = "Senior Loan Officer Survey - Net % Tightening C&I")
+```
+```{r}
+#Merge sloo and corp_oas_xts into one df, then start data when oas data beings, convert to quarterly
+colnames(oas_non_xts)[1]<- "OAS"
+corp_qtr<- to.period(oas_non_xts, period = "quarters", indexAt = "startof")
+corp_qtr<- fortify(corp_qtr)
+corp_qtr$Index<- as.Date(corp_qtr$Index,"%Y-%m-%d")
+corp_qtr$Index<- as.Date(format(corp_qtr$Index, "%Y-%m"))
+#corp_qtr_xts<- xts(corp_qtr[,-1], order.by = corp_qtr$Index)
+```
+```{r}
+#sloo_oas<- merge(sloo, corp_qtr$oas_non_xts.Close, join = "left")
+#sloo_oas<- sloo_oas["2004-01-02/"]
+```
+
+
 
