@@ -310,24 +310,44 @@ addLegend(legend.loc = "topright", legend.names = c("Actual Corporate OAS", "Fit
 ```{r}
 #Retrieve senior loan officer data from FRED
 sloo<- getSymbols("DRTSCILM", src = "FRED", auto.assign = FALSE)
+bbb<- getSymbols("BAMLC0A4CBBB", src = "FRED", auto.assign = FALSE)
+bbb<- na.locf(bbb)
+bbb_qtr<- to.quarterly(bbb, indexAt = "startof")
 ```
 
 ```{r}
 plot(sloo, col = col_yellow, main = "Senior Loan Officer Survey - Net % Tightening C&I")
 ```
 ```{r}
+plot(bbb, col = col_yellow, main = "ICE BofA BBB OAS")
+```
+
+
+```{r}
 #Merge sloo and corp_oas_xts into one df, then start data when oas data beings, convert to quarterly
 colnames(oas_non_xts)[1]<- "OAS"
 corp_qtr<- to.period(oas_non_xts, period = "quarters", indexAt = "startof")
 corp_qtr<- fortify(corp_qtr)
 corp_qtr$Index<- as.Date(corp_qtr$Index,"%Y-%m-%d")
-corp_qtr$Index<- as.Date(format(corp_qtr$Index, "%Y-%m"))
-#corp_qtr_xts<- xts(corp_qtr[,-1], order.by = corp_qtr$Index)
+#corp_qtr$Index<- as.Date(format(corp_qtr$Index, "%Y-%m"))
+corp_qtr_xts<- xts(corp_qtr[,-1], order.by = corp_qtr$Index)
 ```
 ```{r}
-#sloo_oas<- merge(sloo, corp_qtr$oas_non_xts.Close, join = "left")
-#sloo_oas<- sloo_oas["2004-01-02/"]
+#Merge BBB OAS data with the SLOO data. Take window from 1996 forwards.  Carry next observation backwards for BBB data and remove NA's from SLOO data after merge
+sloo_oas<- merge(sloo, bbb_qtr$bbb.Close)
+sloo_oas<- sloo_oas["1996-01-01/"]
+sloo_oas$bbb.Close<- na.locf(sloo_oas$bbb.Close, fromLast = TRUE)
+sloo_oas<- na.omit(sloo_oas)
+sloo_oas_df<- fortify(sloo_oas)
+sloo_oas_df$year<- format(sloo_oas_df$Index,"%Y")
 ```
 
-
+```{r}
+#Scatterplot of CVIX and corporate OAS
+(sloo_oas_plot<- ggplot(sloo_oas_df, aes(DRTSCILM, bbb.Close)) + geom_point(aes(color=year)) + labs(title = "Relationship between SLOO Net Tightening and BBB Corporate OAS") + xlab("Net % Tightening") + ylab("BBB Corporate OAS in %") + theme_bw() + geom_smooth(method = "lm"))
+```
+```{r}
+library(plotly)
+pltly_sloo<- ggplotly(sloo_oas_plot)
+```
 
