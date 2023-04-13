@@ -1,0 +1,136 @@
+---
+title: "yield curve and stocks"
+author: "Andrew Faderewski"
+date: "2023-04-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+---
+title: "Yield Curve and Stocks"
+author: "Andrew"
+date: "2023-04-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+##load packages
+library(ggplot2)
+library(zoo)
+library(quantmod)
+library(roll)
+library(Rblpapi)
+library(TTR)
+library(tis)
+con<- blpConnect()
+start_date <- as.Date("2007-10-01")
+start_date2<- as.Date("1977-01-31")
+non_trade <- "FALSE"
+```
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Create Bloomberg function to quickly retrieve data. Ticker = Bloomberg ticker, variable = Bloomberg data field, start = start date of data, days = whether to include non-trading days
+bloom<- function(ticker,variable,start,days){
+  result<- bdh(securities = ticker,
+               fields = variable,
+               start.date = start,
+               include.non.trading.days = days)
+  return(result)
+}
+```
+
+```{r,echo=FALSE, results=FALSE, message=FALSE, warning=FALSE}
+#Create new variables from Bloomberg data and convert to xts
+liq<- bloom("GVLQUSD INDEX", "PX_LAST",start_date,non_trade)
+sp_500<- bloom("SPX INDEX", "PX_LAST", start_date2,non_trade)
+yc_2_10<- bloom("USYC2Y10 INDEX", "PX_LAST", start_date2, non_trade)
+liq_xts<- xts(liq[,-1], order.by = liq$date)
+sp_500_xts<- xts(sp_500[,-1], order.by = sp_500$date)
+yc_xts<- xts(yc_2_10[,-1], order.by = yc_2_10$date)
+colnames(liq_xts)[1]<- "Value"
+colnames(sp_500_xts)[1]<- "SP_500"
+colnames(yc_xts)[1]<- "Yield_Curve"
+```
+
+```{r}
+#Adding "Year" variable to yield curve data
+yc_xts$year<- format(index(yc_xts),"%Y")
+```
+
+
+```{r}
+#Plot of historical yield curve levels
+plot(yc_xts$Yield_Curve, main = "Two-Ten US Treasury Yield Curve: 1977-2023", col = "#FFCC33")
+```
+```{r}
+#Plot of historical S&P 500 levels
+plot(sp_500_xts$SP_500, main = "S&P 500: 1977-2023", col = "#FFCC33")
+```
+
+```{r}
+#Calculate daily returns for the S&P 500
+l_returns<- ((sp_500_xts$SP_500/stats::lag(sp_500_xts$SP_500,1))-1) * 100
+```
+
+```{r}
+#Create a histogram of S&P 500 daily log returns
+hist(l_returns, main = "Distribution of Daily S&P 500 Returns: 1977-2022", xlab = "Daily Return", col = "#FFCC33", breaks = 100, xlim = c(-10,10))
+```
+
+```{r}
+#Boxplot of S&P 500 daily log returns
+boxplot(l_returns, horizontal = TRUE, col = "#FFCC33", main = "Daily Log Returns S&P 500 1977-2022", xlab = "Daily Returns in %")
+```
+
+
+```{r}
+#Add forward returns variables
+sp_500_xts$daily_return<- ((sp_500_xts$SP_500/stats::lag(sp_500_xts$SP_500,1))-1) * 100
+sp_500_xts$lead_10<- ((stats::lag(sp_500_xts$SP_500,-10)/sp_500_xts$SP_500)-1) * 100
+sp_500_xts$lead_20<- ((stats::lag(sp_500_xts$SP_500,-20)/sp_500_xts$SP_500)-1) * 100
+sp_500_xts$lead_30<- ((stats::lag(sp_500_xts$SP_500,-30)/sp_500_xts$SP_500)-1) * 100
+sp_500_xts$lead_40<- ((stats::lag(sp_500_xts$SP_500,-40)/sp_500_xts$SP_500)-1) * 100
+sp_500_xts$lead_50<- ((stats::lag(sp_500_xts$SP_500,-50)/sp_500_xts$SP_500)-1) * 100
+sp_500_xts$lead_60<- ((stats::lag(sp_500_xts$SP_500,-60)/sp_500_xts$SP_500)-1) * 100
+sp_500_xts$lead_90<- ((stats::lag(sp_500_xts$SP_500,-90)/sp_500_xts$SP_500)-1) * 100
+sp_500_xts$lead_120<- ((stats::lag(sp_500_xts$SP_500,-120)/sp_500_xts$SP_500)-1) * 100
+sp_500_xts$lead_180<- ((stats::lag(sp_500_xts$SP_500,-180)/sp_500_xts$SP_500)-1) * 100
+sp_500_xts$lead_240<- ((stats::lag(sp_500_xts$SP_500,-240)/sp_500_xts$SP_500)-1) * 100
+sp_500_xts$lead_360<- ((stats::lag(sp_500_xts$SP_500,-360)/sp_500_xts$SP_500)-1) * 100
+sp_500_xts$lead_480<- ((stats::lag(sp_500_xts$SP_500,-480)/sp_500_xts$SP_500)-1) * 100
+```
+
+```{r}
+#Convert S&P 500 xts and yc_xtx object to dataframe
+sp_500_df<- as.data.frame(sp_500_xts)
+yc_df<- as.data.frame(yc_xts)
+```
+
+```{r}
+#Filter results for low points of the yield curve
+library(dplyr)
+yc_df %>%
+  group_by(year) %>%
+  filter(Yield_Curve < 0) %>%
+  summarise(min = min(Yield_Curve, na.rm = TRUE))
+```
+
+```{r}
+#Select yield curve low points (inverted curve, low point before going positive), extract dates from low points
+yc_lows<- yc_df[yc_df$Yield_Curve %in% c(-241.650,-44.350,-56.000,-19.026,-5.331,-108.714),]
+low_dates<- row.names(yc_lows)
+```
+
+```{r}
+#Filter the S&P 500 returns df to see how stocks perform following yield curve nadir
+sp_500_df %>%
+  filter(rownames(sp_500_df) %in% low_dates)
+```
+,"2000-04-10","2006-11-15","2023-03-08"
