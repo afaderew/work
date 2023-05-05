@@ -1,0 +1,166 @@
+---
+title: "Portfolio Volatility"
+author: "Andrew"
+date: "2023-05-04"
+output: html_document
+---
+
+```{r}
+library(PerformanceAnalytics)
+library(purrr)
+library(tidyquant)
+library(tidyr)
+library(dplyr)
+library(kableExtra)
+```
+
+
+```{r}
+#Vector of current holdings (copy and paste from excel portfolio report)
+holdings<- scan(text="ABBV
+AXP
+BKNG
+CMC
+DECK
+HAL
+HSY
+IBP
+IR
+LECO
+PEN
+RLI
+RSG
+SBUX
+SXI
+UNM
+WCN
+WRB
+FLOT
+", what="")
+
+```
+```{r}
+#Get prices for each symbol in holdings using Yahoo
+prices<- getSymbols(holdings, src = "yahoo", from = "2022-05-03", auto.assign = TRUE, warnings = FALSE) %>%
+  map(~Cl(get(.))) %>%
+  reduce(merge) %>%
+  'colnames<-' (holdings)
+```
+```{r}
+returns<- holdings %>%
+  tq_get(get = "stock.prices",
+         from = "2022-05-03",
+         to = "2023-05-03") %>%
+  group_by(symbol) %>%
+  tq_transmute(select = adjusted,
+               mutate_fun = periodReturn,
+               period = "monthly",
+               col_rename = "returns")
+```
+
+```{r}
+# Put returns into wide format and convert to xts
+returns<- returns %>%
+  spread(symbol, returns) 
+
+returns$date<- as.Date(returns$date,"%Y-%m-%d")
+returns<- xts(returns[,-1], returns$date)
+```
+
+```{r}
+# Portfolio weights for each asset (copies from excel file, hold alt+shift and scroll to second to last line, then type comma)
+weights<- c(0.041,
+0.034477318,
+0.063496093,
+0.049127852,
+0.046705139,
+0.028663563,
+0.053583555,
+0.030067585,
+0.042465636,
+0.044712388,
+0.051535931,
+0.041639611,
+0.078232595,
+0.042139689,
+0.048191837,
+0.052361224,
+0.071352716,
+0.047353374,
+0.132564865)
+```
+
+```{r}
+#Compare weights with each asset name
+check_weights<- tibble(weights, holdings)
+```
+
+```{r}
+# Use the performanceAnalytics StdDev function to calculate portfolio volatility
+(portfolio_sd<- StdDev(returns, portfolio_method = "component", weights = weights))
+```
+
+```{r}
+#Annualize the monthly standard deviation
+portfolio_sd$StdDev * sqrt(12)
+```
+
+```{r}
+#Create a table of percent contribution to standard deviation
+pct_ct_df<- data.frame(portfolio_sd$pct_contrib_StdDev)
+colnames(pct_ct_df)[1]<- "Pct Cont"
+pct_ct_df$`Pct Cont`<- pct_ct_df$`Pct Cont`*100
+nice_table<- kbl(pct_ct_df)
+```
+
+```{r}
+#Get price data for SPY and IJH (S&P 500 ETF and Midcap 400 ETF)
+sp_etf<- getSymbols('SPY', src = 'yahoo',from = "2022-05-03", auto.assign = TRUE, warnings = FALSE)
+mid_etf<- getSymbols('IJH', src = 'yahoo',from = "2022-05-03", auto.assign = TRUE, warnings = FALSE)
+```
+
+```{r}
+#Get returns data for stock indices
+returns_sp<- sp_etf %>%
+  tq_get(get = "stock.prices",
+         from = "2022-05-03",
+         to = "2023-05-03") %>%
+  group_by(symbol) %>%
+  tq_transmute(select = adjusted,
+               mutate_fun = periodReturn,
+               period = "monthly",
+               col_rename = "returns")
+
+returns_mid<- mid_etf %>%
+  tq_get(get = "stock.prices",
+         from = "2022-05-03",
+         to = "2023-05-03") %>%
+  group_by(symbol) %>%
+  tq_transmute(select = adjusted,
+               mutate_fun = periodReturn,
+               period = "monthly",
+               col_rename = "returns")
+
+```
+
+
+```{r}
+# Put index returns into wide format and convert to xts
+returns_sp<- returns_sp %>%
+  spread(symbol, returns) 
+
+returns_sp$date<- as.Date(returns_sp$date,"%Y-%m-%d")
+returns_sp<- xts(returns_sp[,-1], returns_sp$date)
+
+returns_mid<- returns_mid %>%
+  spread(symbol, returns) 
+
+returns_mid$date<- as.Date(returns_mid$date,"%Y-%m-%d")
+returns_mid<- xts(returns_mid[,-1], returns_mid$date)
+```
+
+```{r}
+# Use the performanceAnalytics StdDev function to calculate annualized index volatility
+(sp_sd<- StdDev.annualized(returns_sp, scale = 12))
+(mid_sd<- StdDev.annualized(returns_mid, scale = 12))
+```
