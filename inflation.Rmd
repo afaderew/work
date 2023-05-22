@@ -108,6 +108,7 @@ u3<- getSymbols("UNRATE", src = "FRED", auto.assign = FALSE)
 
 ```{r}
 ahe_oservices<- fred_func("CES8000000003","oservices")
+gli<- fred_func("A576RC1","gross_labor_income")
 ```
 
 
@@ -390,3 +391,61 @@ earn_2007$year<- format(index(earn_2007),"%Y")
 ggplot(as.data.frame(earn_2007), aes(UNRATE,all_pct_yoy)) + geom_point(aes(color = year)) + ylab("AHE YoY %") + xlab("U3 Unemployment Rate") + ggtitle("AHE YoY vs. U3 UER: 2007 to Present") + geom_smooth(method = "loess") + theme_bw()
 ```
 
+```{r}
+#Plot of Gross labor income
+plot(gli$gross_labor_income_pct_yoy, col = "#FFCC33", main = "YoY % Change GLI")
+```
+```{r}
+#Plot of Gross labor income
+plot(gli$gross_labor_income_pct_mom, col = "#FFCC33", main = "MoM % Change GLI")
+```
+```{r}
+#Import FRED data for the contribution to GDP growth and merge into one dataframe
+pce_contribution<- getSymbols("DPCERY2Q224SBEA", src = "FRED", auto.assign = FALSE)
+govt_contribution<- getSymbols("A822RY2Q224SBEA", src = "FRED", auto.assign = FALSE)
+net_ex_contribution<- getSymbols("A019RY2Q224SBEA", src = "FRED", auto.assign = FALSE)
+invest_contribution<- getSymbols("A006RY2Q224SBEA", src = "FRED", auto.assign = FALSE)
+gdp_contribution<- merge(pce_contribution,govt_contribution,net_ex_contribution,invest_contribution)
+```
+
+```{r}
+#Rename the gdp contribution columns and add "Year" column
+colnames(gdp_contribution)[1]<- "Consumption"
+colnames(gdp_contribution)[2]<- "Government"
+colnames(gdp_contribution)[3]<- "NetExports"
+colnames(gdp_contribution)[4]<- "Investment"
+```
+
+```{r}
+#Set the window of time for gdp data,convert to df, and add "Year" column
+gdp_contribution<- window(gdp_contribution["2013/"])
+gdp_df<- as.data.frame(gdp_contribution)
+gdp_df$Year<- as.yearqtr(rownames(gdp_df),format = "%Y-%m-%d")
+head(gdp_df)
+```
+
+
+```{r}
+# Reshape the data into long format
+library(reshape2)
+data_long <- reshape2::melt(gdp_df, id.vars = "Year")
+
+# Create the stacked bar chart
+ggplot(data_long, aes(x = Year, y = value, fill = variable)) +
+  geom_bar(stat = "identity") +
+  labs(
+    x = "Year",
+    y = "Contribution to GDP Growth",
+    fill = "Component"
+  ) +
+  scale_fill_manual(
+    values = c(
+      Consumption = "#FFCC33",
+      Investment = "GREY",
+      Government = "#3366CC",
+      NetExports = "#FF9933"
+    )
+  ) +
+  ggtitle("Contribution to GDP Growth") +
+  theme_bw()
+```
