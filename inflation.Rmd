@@ -418,10 +418,11 @@ colnames(gdp_contribution)[4]<- "Investment"
 
 ```{r}
 #Set the window of time for gdp data,convert to df, and add "Year" column
-gdp_contribution<- window(gdp_contribution["2013/"])
+win_date<- "2021-01-01/"
+gdp_contribution<- gdp_contribution[win_date]
 gdp_df<- as.data.frame(gdp_contribution)
 gdp_df$Year<- as.yearqtr(rownames(gdp_df),format = "%Y-%m-%d")
-head(gdp_df)
+tail(gdp_df)
 ```
 
 
@@ -448,4 +449,54 @@ ggplot(data_long, aes(x = Year, y = value, fill = variable)) +
   ) +
   ggtitle("Contribution to GDP Growth") +
   theme_bw()
+```
+
+
+```{r}
+#Import Real GDP
+real_gdp<- getSymbols("GDPC1", src = "FRED", auto.assign = FALSE)
+```
+
+```{r}
+#Annualize the quarter change in real GDP
+real_gdp$change<- diff(real_gdp$GDPC1)
+real_gdp$qtrly_pct<- (real_gdp$GDPC1/stats::lag(real_gdp$GDPC1,1))-1
+real_gdp$Annualized<- (((1+real_gdp$qtrly_pct)^4)-1)*100
+tail(real_gdp)
+```
+
+```{r}
+#Set the window of time for gdp data,convert to df, and add "Year" column
+real_gdp_win<- real_gdp[win_date]
+rgdp_df<- as.data.frame(real_gdp_win)
+rgdp_df$Year<- as.yearqtr(rownames(rgdp_df),format = "%Y-%m-%d")
+tail(rgdp_df)
+```
+
+```{r}
+totals<- data_long %>%
+  group_by(Year) %>%
+  summarise(total=sum(value))
+```
+
+```{r}
+# Create the stacked bar chart with labels showing actual GDP growth
+(gdp_bar2<- ggplot(data_long, aes(x = Year, y = value, fill = variable)) +
+  geom_bar(stat = "identity") +
+  labs(
+    x = "Year/Quarter",
+    y = "Contribution to GDP Growth with Total",
+    fill = "Component"
+  ) +
+  scale_fill_manual(
+    values = c(
+      Consumption = "#FFCC33",
+      Investment = "GREY",
+      Government = "#3366CC",
+      NetExports = "#FF9933"
+    )
+  ) +
+  ggtitle("Contribution to GDP Growth") +
+  geom_text(data = totals, aes(Year,total,label=total,fill=NULL))+
+  theme_bw())
 ```
